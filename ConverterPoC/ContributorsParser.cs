@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Xml.Linq;
 
 namespace ConverterPoC;
@@ -9,9 +10,11 @@ public class ContributorsParser
     {
         try
         {
+            JsonElement contributors = default;
+            
             if (!root.TryGetProperty("metadata", out var metadata) || 
-                !metadata.TryGetProperty("creators", out var creators) ||
-                !metadata.TryGetProperty("contributors", out var contributors)
+                (!metadata.TryGetProperty("creators", out var creators) &&
+                !metadata.TryGetProperty("contributors", out contributors))
                 )
             {
                 throw new Exception("No contributors/creators found in the InvenioRDM JSON");
@@ -20,7 +23,12 @@ public class ContributorsParser
             var contributorsElement = new XElement(nameSpace + "contributors");
             
             var contributorCount = 0;
-            foreach (var contributor in creators.EnumerateArray().Concat(contributors.EnumerateArray()))
+
+            var contr = (contributors.ValueKind is JsonValueKind.Array)
+                ? contributors.EnumerateArray()
+                : new JsonElement.ArrayEnumerator();
+            
+            foreach (var contributor in creators.EnumerateArray().Concat(contr))
             {
                 contributorCount++;
                 var sequence = contributorCount == 1 ? "first" : "additional";
