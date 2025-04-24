@@ -164,24 +164,7 @@ public static class FromJsonConverter
                 }
             }
         }
-
-        /*
-        if (metadata.TryGetProperty("publication_date", out var pubDateE))
-        {
-            var pubDate = pubDateE.GetString();
-
-            if (DateTime.TryParse(pubDate, out var parsedDate))
-            {
-                postedContent.Add(new XElement(xmlns + "publication_date",
-                    new XElement(xmlns + "year", parsedDate.Year)
-                ));
-            }
-        }*/
-
-       // postedContent.Add(journalMetadata);
-       // postedContent.Add(journalIssue);
-       // postedContent.Add(journalArticle);
-
+        
         return postedContent;
     }
 
