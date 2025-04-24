@@ -2,7 +2,7 @@
 
 namespace ConverterPoC;
 
-class InvenioRDMClient
+public class InvenioRDMClient
 {
     private readonly string _apiUrl;
 
@@ -46,5 +46,15 @@ class InvenioRDMClient
             Console.WriteLine($"Error: {response.StatusCode} - {await response.Content.ReadAsStringAsync()}");
             return null;
         }
+    }
+
+    public async Task<byte[]?> GetAsync(string pdfLink)
+    {
+        var response = await _client.GetAsync(pdfLink);
+
+        if (response.IsSuccessStatusCode)
+            return await response.Content.ReadAsByteArrayAsync();
+
+        return null;
     }
 }
