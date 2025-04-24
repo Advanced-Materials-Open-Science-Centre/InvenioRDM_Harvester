@@ -1,9 +1,10 @@
 ﻿using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 
 namespace ConverterPoC;
 
-class CrossrefApiClient
+public class CrossrefApiClient
 {
     private readonly HttpClient _client;
     private readonly string _username;
@@ -20,6 +21,8 @@ class CrossrefApiClient
 
     public async Task<string> SubmitMetadataAsync(string fileName, string metadataXml)
     {
+        EnsureCredentialsSet();
+        
         using var content = new MultipartFormDataContent();
 
         content.Add(new StringContent(_username), "login_id");
@@ -36,5 +39,32 @@ class CrossrefApiClient
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadAsStringAsync();
+    }
+
+    public async Task<string?> GetJournalTitleByISSN(string issn)
+    {
+        string url = $"https://api.crossref.org/journals/{issn}";
+
+        try
+        {
+            var response = await _client.GetStringAsync(url);
+            using var doc = JsonDocument.Parse(response);
+            var title = doc.RootElement.GetProperty("message").GetProperty("title").GetString();
+            return title;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+            return null;
+        }
+    }
+    
+    private void EnsureCredentialsSet()
+    {
+        if(string.IsNullOrEmpty(_password))
+            throw new ArgumentException("Provide CrossRef password");
+        
+        if(string.IsNullOrEmpty(_username))
+            throw new ArgumentException("Provide CrossRef username");
     }
 }

@@ -23,7 +23,7 @@ try
     foreach (var recordId in args)
     {
         await ProcessRecordAsync(recordId, rdmClient, crossrefClient);
-        await Task.Delay(TimeSpan.FromSeconds(1)); //Ensure generated timestamps differ
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 }
 catch (Exception ex)
@@ -39,7 +39,7 @@ async Task ProcessRecordAsync(string s, InvenioRDMClient invenioRdmClient,
             
     var contents = await invenioRdmClient.LoadRecordAsync(s);
             
-    var converted = FromJsonConverter.Convert(contents ?? "");
+    var converted = FromJsonConverter.Convert(invenioRdmClient, crossrefApiClient, contents ?? "");
 
     using var doc = JsonDocument.Parse(contents);
     var formattedJson = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
