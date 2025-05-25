@@ -19,6 +19,15 @@ public class CrossrefApiClient
         _client = new HttpClient();
     }
 
+    public async Task<string> GetDoiPrefixOwnerAsync(string prefix)
+    {
+        var url = $"https://api.crossref.org/prefixes/{prefix}";
+        var json = await _client.GetStringAsync(url);
+
+        var result = JsonSerializer.Deserialize<CrossrefPrefixResponse>(json);
+        return result?.Message?.Name ?? "Unknown";
+    }
+    
     public async Task<CrossrefApiResponse?> DoiExistsAsync(string doi)
     {
         if (string.IsNullOrWhiteSpace(doi))

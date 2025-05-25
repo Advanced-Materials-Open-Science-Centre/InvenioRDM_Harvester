@@ -1,5 +1,7 @@
-﻿using System.Security.Cryptography;
+﻿using System.Net;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -109,7 +111,7 @@ public static class FromJsonConverter
         {
             var pdfLink = GetFileLink(root);
 
-            var doi = ExtractDoi(root);
+            var doi = ExtractDoi(root, pdfLink);
 
             if (doi != null)
             {
@@ -145,7 +147,7 @@ public static class FromJsonConverter
         {
             var pdfLink = GetFileLink(root);
            
-            var doi = ExtractDoi(root);
+            var doi = ExtractDoi(root, pdfLink);
 
             if (doi != null)
             {
@@ -234,7 +236,7 @@ public static class FromJsonConverter
             journalMetadata.Add(new XElement(xmlns + "full_title", journalIssnAndName.Item1));
             journalMetadata.Add(new XElement(xmlns + "issn", journalIssnAndName.Item2));
             
-            var doi = ExtractDoi(root);
+            var doi = ExtractDoi(root, pdfLink);
 
             if (metadata.TryGetProperty("title", out var articleTitleElement))
             {
@@ -497,7 +499,7 @@ public static class FromJsonConverter
         return citation;
     }
 
-    private static string? ExtractDoi(JsonElement root)
+    private static string? ExtractDoi(JsonElement root, string? pdfLink)
     {
         try
         {
@@ -521,18 +523,32 @@ public static class FromJsonConverter
                     }
                 }
             }
-
+            
             //If DOI doesn't exist in the doc, generate a new DOI
-            if (root.TryGetProperty("id", out var id))
-            {
-                return id.GetString();
-            }
+            var generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink); //PNU
+            return generatedDoi;
         }
         catch
         {
         }
 
         return null;
+    }
+
+    private static string GenerateSuffixFromFileLink(string? pdfLink)
+    {
+        if (pdfLink != null)
+        {
+            var decoded = WebUtility.UrlDecode(pdfLink);
+            
+            var fileNamePart = decoded.Split("/").FirstOrDefault(t => t.Contains(".pdf") || t.Contains(".docx")) ?? "";
+
+            return string.Join("", fileNamePart
+                .Where(t => char.IsAsciiDigit(t) || t == '_')
+                .Select(t => char.IsAsciiDigit(t) ? t : '.'));
+        }
+
+        return Guid.NewGuid().ToString("D").Replace("-", ".");
     }
 
     private static XElement BuildHead(XNamespace crossrefNs, JsonElement root)

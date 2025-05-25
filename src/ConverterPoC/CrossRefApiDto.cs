@@ -42,6 +42,9 @@ public class CrossrefWork
 
     [JsonPropertyName("ISSN")]
     public List<string> Issn { get; set; }
+    
+    [JsonPropertyName("ISBN")]
+    public List<string> Isbn { get; set; }
 }
 
 public class CrossrefAuthor
