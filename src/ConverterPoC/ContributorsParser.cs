@@ -70,14 +70,23 @@ public class ContributorsParser
 
                         if (contributor.TryGetProperty("affiliations", out var affiliations))
                         {
+                            var institutions = new List<string>();
+                            
+                            
                             foreach (var affiliation in affiliations.EnumerateArray())
                             {
                                 if (affiliation.TryGetProperty("name", out var affName))
                                 {
-                                    personElement.Add(new XElement(nameSpace + "affiliations", 
-                                        new XElement(nameSpace + "institution",
-                                            new XElement(nameSpace + "institution_name", affName.GetString()))));
+                                    institutions.Add(affName.GetString());
                                 }
+                            }
+
+                            if (institutions.Any())
+                            {
+                                var insts = institutions.Select(ins => new XElement(nameSpace + "institution",
+                                    new XElement(nameSpace + "institution_name", ins)));
+                                
+                                personElement.Add(new XElement(nameSpace + "affiliations", insts));
                             }
                         }
                         

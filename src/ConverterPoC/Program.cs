@@ -38,8 +38,6 @@ async Task ProcessRecordAsync(string s, InvenioRDMClient invenioRdmClient,
     Console.WriteLine("Record ID: " + s);
             
     var contents = await invenioRdmClient.LoadRecordAsync(s);
-
-    //var ff = await crossrefApiClient.GetDoiPrefixOwnerAsync("10.15330");
     
     var converted = FromJsonConverter.Convert(invenioRdmClient, crossrefApiClient, contents ?? "");
 
