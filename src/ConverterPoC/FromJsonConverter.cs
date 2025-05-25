@@ -83,21 +83,59 @@ public static class FromJsonConverter
         CrossrefApiClient crossrefApiClient
     )
     {
-        var pdfLink = GetPdfFileLink(root);
-        var journalIssnAndName = pdfLink != null
-            ? ExtractJournalIssnAndTitle(pdfLink, invenioRdmClient, crossrefApiClient)
+        var fileLink = GetFileLink(root);
+        var journalIssnAndName = fileLink != null
+            ? ExtractJournalIssnAndTitle(fileLink, invenioRdmClient, crossrefApiClient)
             : null;
+
+        if (journalIssnAndName == null)
+        {
+            journalIssnAndName = TryLookForDoi(root, crossrefApiClient);
+        }
 
         var docType = journalIssnAndName != null
             ? CreateJournalElement(ns, root, jats, journalIssnAndName.Value)
-            : CreatePresentation(ns, root, jats);
+            : CreatePresentation(ns, root, jats, crossrefApiClient);
 
         return new XElement(ns + "body",
             docType
         );
     }
 
-    private static XElement CreatePresentation(XNamespace xmlns, JsonElement root, XNamespace jats)
+    private static (string, string)? TryLookForDoi(JsonElement root, 
+        CrossrefApiClient crossrefApiClient)
+    {
+        if (root.TryGetProperty("metadata", out var metadata))
+        {
+            var pdfLink = GetFileLink(root);
+
+            var doi = ExtractDoi(root);
+
+            if (doi != null)
+            {
+                var re = crossrefApiClient.DoiExistsAsync(doi).Result;
+
+                if (re != null)
+                {
+                    Console.WriteLine($"Already published: Doi: {doi}");
+                    Console.WriteLine($"Doi: {doi}");
+
+                    if (re.Message.Issn.Any())
+                    {
+                        var issn = re.Message.Issn.First();
+                        var journalName = crossrefApiClient.GetJournalTitleByISSN(issn).Result;
+
+                        return (journalName, issn);
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    private static XElement CreatePresentation(XNamespace xmlns, JsonElement root, XNamespace jats,
+        CrossrefApiClient crossrefApiClient)
     {
         var postedContent = new XElement(xmlns + "posted_content",
             new XAttribute("type", "report")
@@ -105,9 +143,20 @@ public static class FromJsonConverter
 
         if (root.TryGetProperty("metadata", out var metadata))
         {
-            var pdfLink = GetPdfFileLink(root);
-            
+            var pdfLink = GetFileLink(root);
+           
             var doi = ExtractDoi(root);
+
+            if (doi != null)
+            {
+                var re = crossrefApiClient.DoiExistsAsync(doi).Result;
+
+                if (re != null)
+                {
+                    Console.WriteLine($"Already published: Doi: {doi}");
+                    Console.WriteLine($"Doi: {doi}");
+                }
+            }
 
             if (metadata.TryGetProperty("creators", out var creatorsElement) &&
                 creatorsElement.ValueKind == JsonValueKind.Array)
@@ -180,7 +229,7 @@ public static class FromJsonConverter
         
         if (root.TryGetProperty("metadata", out var metadata))
         {
-            var pdfLink = GetPdfFileLink(root);
+            var pdfLink = GetFileLink(root);
             
             journalMetadata.Add(new XElement(xmlns + "full_title", journalIssnAndName.Item1));
             journalMetadata.Add(new XElement(xmlns + "issn", journalIssnAndName.Item2));
@@ -262,15 +311,15 @@ public static class FromJsonConverter
         return journal;
     }
 
-    private static (string, string)? ExtractJournalIssnAndTitle(string pdfLink,
+    private static (string, string)? ExtractJournalIssnAndTitle(string fileLink,
         InvenioRDMClient invenioRdmClient, CrossrefApiClient crossrefApiClient)
     {
-        var pdf = invenioRdmClient.GetAsync(pdfLink).Result;
-
-        if (pdf == null)
+        var file = invenioRdmClient.GetAsync(fileLink).Result;
+        
+        if (file == null)
             return null;
 
-        var bytes = pdf;
+        var bytes = file;
 
         var issn = ExtractIssn(bytes);
 
@@ -281,13 +330,47 @@ public static class FromJsonConverter
 
         return (journalName, issn);
     }
-    
+
     private static string? ExtractIssn(byte[] pdfPath)
     {
-        using var document = PdfDocument.Open(pdfPath);
+        try
+        {
+            return ExtractISSNFromPdf(pdfPath);
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                return ExtractISSNFromDocx(pdfPath);
+            }
+            catch (Exception e1)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static string? ExtractISSNFromDocx(byte[] pdfPath)
+    {
+        using var stream = new MemoryStream(pdfPath);
+        var text = OpenXmlWordSearcher.ReadTextFromDocx(stream);
+
+        
+        var match = Regex.Match(text, @"ISSN[\s:]*([0-9]{4}-[0-9]{3}[\dXx])");
+        if (match.Success)
+        {
+            return match.Groups[1].Value;
+        }
+        
+        return null;
+    }
+
+    private static string? ExtractISSNFromPdf(byte[] contents)
+    {
+        using var document = PdfDocument.Open(contents);
         foreach (var page in document.GetPages())
         {
-            string text = page.Text;
+            var text = page.Text;
 
             var match = Regex.Match(text, @"ISSN[\s:]*([0-9]{4}-[0-9]{3}[\dXx])");
             if (match.Success)
@@ -299,20 +382,20 @@ public static class FromJsonConverter
         return null;
     }
 
-    private static string? GetPdfFileLink(JsonElement root)
+    private static string? GetFileLink(JsonElement root)
     {
-        if (root.TryGetProperty("files", out JsonElement files) &&
-            files.TryGetProperty("entries", out JsonElement entries))
+        if (root.TryGetProperty("files", out var files) &&
+            files.TryGetProperty("entries", out var entries))
         {
-            foreach (JsonProperty p in entries.EnumerateObject())
+            foreach (var p in entries.EnumerateObject())
             {
                 var file = p.Value;
 
-                if (file.TryGetProperty("mimetype", out JsonElement mimetype) &&
+                if (file.TryGetProperty("mimetype", out var mimetype) &&
                     !string.IsNullOrEmpty(mimetype.GetString()))
                 {
-                    if (file.TryGetProperty("links", out JsonElement links) &&
-                        links.TryGetProperty("content", out JsonElement fileLink))
+                    if (file.TryGetProperty("links", out var links) &&
+                        links.TryGetProperty("content", out var fileLink))
                     {
                         return fileLink.GetString();
                     }
@@ -414,7 +497,7 @@ public static class FromJsonConverter
         return citation;
     }
 
-    private static string ExtractDoi(JsonElement root)
+    private static string? ExtractDoi(JsonElement root)
     {
         try
         {
@@ -424,14 +507,22 @@ public static class FromJsonConverter
                 foreach (var identifier in identifiers.EnumerateArray())
                 {
                     if (identifier.TryGetProperty("scheme", out var scheme) &&
-                        scheme.GetString() == "doi" &&
-                        identifier.TryGetProperty("identifier", out var doiElement))
+                        scheme.GetString() == "crossreffunderid" &&
+                        identifier.TryGetProperty("identifier", out var doiElement1))
                     {
-                        return doiElement.GetString();
+                        return doiElement1.GetString()?.Replace("DOI:", "");
+                    }
+                    
+                    if (identifier.TryGetProperty("scheme", out var scheme2) &&
+                        scheme2.GetString() == "doi" &&
+                        identifier.TryGetProperty("identifier", out var doiElement2))
+                    {
+                        return doiElement2.GetString();
                     }
                 }
             }
 
+            //If DOI doesn't exist in the doc, generate a new DOI
             if (root.TryGetProperty("id", out var id))
             {
                 return id.GetString();

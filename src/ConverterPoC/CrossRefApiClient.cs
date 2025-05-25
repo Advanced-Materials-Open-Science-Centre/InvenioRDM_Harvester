@@ -19,6 +19,26 @@ public class CrossrefApiClient
         _client = new HttpClient();
     }
 
+    public async Task<CrossrefApiResponse?> DoiExistsAsync(string doi)
+    {
+        if (string.IsNullOrWhiteSpace(doi))
+            throw new ArgumentException("DOI cannot be null or empty.");
+
+        var url = $"https://api.crossref.org/works/{Uri.EscapeDataString(doi)}";
+
+        try
+        {
+            var response = await _client.GetStringAsync(url);
+            var result = JsonSerializer.Deserialize<CrossrefApiResponse>(response);
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"HTTP error: {ex.Message}");
+            return null;
+        }
+    }
+    
     public async Task<string> SubmitMetadataAsync(string fileName, string metadataXml)
     {
         EnsureCredentialsSet();
@@ -43,7 +63,7 @@ public class CrossrefApiClient
 
     public async Task<string?> GetJournalTitleByISSN(string issn)
     {
-        string url = $"https://api.crossref.org/journals/{issn}";
+        var url = $"https://api.crossref.org/journals/{issn}";
 
         try
         {
