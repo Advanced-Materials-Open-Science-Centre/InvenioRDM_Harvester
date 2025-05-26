@@ -592,6 +592,7 @@ public static class FromJsonConverter
             
             //If DOI doesn't exist in the doc, generate a new DOI
             var generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink); //PNU
+            Console.WriteLine("Generated doi: " + generatedDoi);
             return generatedDoi;
         }
         catch
@@ -610,8 +611,9 @@ public static class FromJsonConverter
             var fileNamePart = decoded.Split("/").FirstOrDefault(t => t.Contains(".pdf") || t.Contains(".docx")) ?? "";
 
             return string.Join("", fileNamePart
-                .Where(t => char.IsAsciiDigit(t) || t == '_')
-                .Select(t => char.IsAsciiDigit(t) ? t : '.'));
+                    .Where(t => char.IsAsciiDigit(t) || t == '_' || t == '-')
+                    .Select(t => char.IsAsciiDigit(t) ? t : '.'))
+                .Trim('.');
         }
 
         return Guid.NewGuid().ToString("D").Replace("-", ".");
