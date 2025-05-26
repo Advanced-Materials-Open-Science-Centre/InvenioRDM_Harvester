@@ -326,8 +326,18 @@ public static class FromJsonConverter
         var issn = ExtractIssn(bytes);
 
         if (issn == null)
-            return null;
+        {
+            var isbn = ExtractISBNFromPdf(bytes);
 
+            if (isbn != null)
+            {
+                var journalName3 = crossrefApiClient.SearchCrossrefByIsbnAsync(isbn).Result;
+                
+                if(journalName3 != null)
+                    return (journalName3.Title.FirstOrDefault() ?? "", isbn);
+            }
+        }
+        
         var journalName = crossrefApiClient.GetJournalTitleByISSN(issn).Result;
 
         return (journalName, issn);
@@ -347,11 +357,65 @@ public static class FromJsonConverter
             }
             catch (Exception e1)
             {
-                return null;
+                try
+                {
+                    return ExtractISBNFromPdf(pdfPath);
+                }
+                catch (Exception e2)
+                {
+                    return null;
+                }
             }
         }
     }
 
+    private static string? ExtractISBNFromPdf(byte[] contents)
+    {
+        // Regex for ISBN-10 or ISBN-13
+        
+        using var document = PdfDocument.Open(contents);
+        foreach (var page in document.GetPages())
+        {
+            var text = page.Text;
+            
+            //ISBN 978-966-640-578-7
+            
+            var match = Regex.Match(text, @"ISBN[\s:]*([0-9]{3}-[0-9]{3}-[0-9]{3}-[0-9]{3}-[0-9]{1})");
+            if (match.Success)
+            {
+                string isbn = match.Value
+                    .Replace("ISBN","")    
+                    .Replace("-", "").Replace(" ", "");
+                if (IsValidIsbn(isbn))
+                    return match.Groups[1].Value.Replace("ISBN","")  ;
+            }
+        }
+
+        return null;
+    }
+    
+    static bool IsValidIsbn(string isbn)
+    {
+        if (isbn.Length == 10)
+        {
+            int sum = 0;
+            for (int i = 0; i < 9; i++)
+                sum += (10 - i) * (isbn[i] - '0');
+            char check = isbn[9];
+            sum += (check == 'X' || check == 'x') ? 10 : (check - '0');
+            return sum % 11 == 0;
+        }
+        else if (isbn.Length == 13)
+        {
+            int sum = 0;
+            for (int i = 0; i < 12; i++)
+                sum += (isbn[i] - '0') * ((i % 2 == 0) ? 1 : 3);
+            int checkDigit = (10 - (sum % 10)) % 10;
+            return checkDigit == (isbn[12] - '0');
+        }
+        return false;
+    }
+    
     private static string? ExtractISSNFromDocx(byte[] pdfPath)
     {
         using var stream = new MemoryStream(pdfPath);

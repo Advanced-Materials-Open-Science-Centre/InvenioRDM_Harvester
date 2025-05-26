@@ -70,6 +70,5 @@ public class CrossrefAffiliation
 
 public class CrossrefIssued
 {
-    [JsonPropertyName("date-parts")]
-    public List<List<int>> DateParts { get; set; }
+  
 }

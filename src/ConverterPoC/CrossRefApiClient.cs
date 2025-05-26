@@ -70,6 +70,18 @@ public class CrossrefApiClient
         return await response.Content.ReadAsStringAsync();
     }
 
+    public async Task<CrossrefWork?> SearchCrossrefByIsbnAsync(string isbn)
+    {
+        string query = $"https://api.crossref.org/works?query={isbn}&rows=10";
+        var json = await _client.GetStringAsync(query);
+
+        var response = JsonSerializer.Deserialize<CrossrefSearchResponse>(json);
+    
+        return response?.Message?.Items?.FirstOrDefault(w =>
+            w.Isbn != null && w.Isbn.Any(i => i.Replace("-", "") == isbn.Replace("-", ""))
+        );
+    }
+    
     public async Task<string?> GetJournalTitleByISSN(string issn)
     {
         var url = $"https://api.crossref.org/journals/{issn}";
