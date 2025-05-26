@@ -335,6 +335,8 @@ public static class FromJsonConverter
                 
                 if(journalName3 != null)
                     return (journalName3.Title.FirstOrDefault() ?? "", isbn);
+
+                return null;
             }
         }
         
