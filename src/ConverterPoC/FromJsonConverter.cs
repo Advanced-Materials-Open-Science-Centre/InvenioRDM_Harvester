@@ -95,13 +95,29 @@ public static class FromJsonConverter
             journalIssnAndName = TryLookForDoi(root, crossrefApiClient);
         }
 
-        var docType = journalIssnAndName != null
-            ? CreateJournalElement(ns, root, jats, journalIssnAndName.Value)
-            : CreatePresentation(ns, root, jats, crossrefApiClient);
+        var type = root.GetProperty("metadata")
+            .GetProperty("resource_type")
+            .GetProperty("title")
+            .GetProperty("en")
+            .GetString();
+
+        var docType = DocType(ns, root, jats, crossrefApiClient, journalIssnAndName, type);
 
         return new XElement(ns + "body",
             docType
         );
+    }
+
+    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, CrossrefApiClient crossrefApiClient, (string, string)? journalIssnAndName, string? type)
+    {
+        if (type == "Book")
+            return CreateBook(ns, root, jats, journalIssnAndName, crossrefApiClient);
+        
+        return journalIssnAndName != null
+            ? type == "Book"
+                ? CreateBook(ns, root, jats, journalIssnAndName.Value, crossrefApiClient)
+                : CreateJournalElement(ns, root, jats, journalIssnAndName.Value)
+            : CreatePresentation(ns, root, jats, crossrefApiClient);
     }
 
     private static (string, string)? TryLookForDoi(JsonElement root, 
@@ -134,6 +150,122 @@ public static class FromJsonConverter
         }
         
         return null;
+    }
+    
+    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title,
+        CrossrefApiClient crossrefApiClient)
+    {
+        var bookElement = new XElement(xmlns + "book",
+            new XAttribute("book_type", "monograph"));
+
+        AddBookMetadata(xmlns, bookElement, root, jats);
+        
+        return bookElement;
+    }
+    
+    private static void AddBookMetadata(XNamespace xmlns, XElement bookElement, JsonElement root, XNamespace jats)
+    {
+        var bookMetadata = new XElement(xmlns + "book_metadata",
+            new XAttribute("language", "en")
+        );
+
+        if (root.TryGetProperty("metadata", out var metadata))
+        {
+            var pdfLink = GetFileLink(root);
+
+            var doi = ExtractDoi(root, pdfLink);
+
+            if (metadata.TryGetProperty("creators", out var creatorsElement) &&
+                creatorsElement.ValueKind == JsonValueKind.Array)
+            {
+                var contributors = ContributorsParser.ConvertContributorsToXml(xmlns, root);
+
+                if (contributors.HasElements)
+                {
+                    bookMetadata.Add(contributors);
+                }
+            }
+
+            if (metadata.TryGetProperty("title", out var articleTitleElement))
+            {
+                var articleTitle = articleTitleElement.GetString();
+                bookMetadata.Add(new XElement(xmlns + "titles",
+                    new XElement(xmlns + "title", articleTitle)
+                ));
+            }
+
+            AddAbstractFromDataCite(metadata, bookMetadata, jats);
+            
+            if (metadata.TryGetProperty("publication_date", out var pubDateElement))
+            {
+                var pubDate = pubDateElement.GetString();
+                if (DateTime.TryParse(pubDate, out var parsedDate))
+                {
+                    bookMetadata.Add(new XElement(xmlns + "publication_date",
+                        new XElement(xmlns + "month", parsedDate.Month.ToString("D2")),
+                        new XElement(xmlns + "day", parsedDate.Day.ToString("D2")),
+                        new XElement(xmlns + "year", parsedDate.Year)
+                    ));
+                }
+            }
+
+            AddIsbn(xmlns, bookMetadata, "978-966-640-578-7");
+            
+            AddPublisher(xmlns, bookMetadata, metadata);
+
+            if (!string.IsNullOrEmpty(doi))
+            {
+                bookMetadata.Add(new XElement(xmlns + "doi_data",
+                    new XElement(xmlns + "doi", doi),
+                    new XElement(xmlns + "resource", pdfLink)
+                ));
+            }
+
+            JsonElement references;
+            if (metadata.TryGetProperty("references", out references) && references.ValueKind == JsonValueKind.Array)
+            {
+                var citationList = new XElement(xmlns + "citation_list");
+                bookMetadata.Add(citationList);
+
+                foreach (var reference in references.EnumerateArray())
+                {
+                    var citation = ProcessCitation(xmlns, reference);
+                    citationList.Add(citation);
+                }
+            }
+        }
+
+        bookElement.Add(bookMetadata);
+    }
+
+    private static void AddIsbn(XNamespace xmlns, XElement bookMetadata, string? isbn)
+    {
+        if (!string.IsNullOrEmpty(isbn))
+        {
+            var cleanIsbn = isbn.Replace("-", "").Replace(" ", "");
+
+            if (cleanIsbn.Length == 13)
+            {
+                bookMetadata.Add(new XElement(xmlns + "isbn",
+                    new XAttribute("media_type", "print"), cleanIsbn));
+            }
+        }
+        else
+        {
+            bookMetadata.Add(new XElement(xmlns + "noisbn",
+                new XAttribute("reason", "monograph"))); 
+        }
+    }
+
+    private static void AddPublisher(XNamespace xmlns, XElement bookMetadata, JsonElement metadata)
+    {
+        var publisher = metadata.GetProperty("publisher").GetString();
+        if (!string.IsNullOrEmpty(publisher))
+        {
+            bookMetadata.Add(new XElement(xmlns + "publisher",
+                new XElement(xmlns + "publisher_name", publisher)
+            ));
+        }
     }
     
     private static XElement CreatePresentation(XNamespace xmlns, JsonElement root, XNamespace jats,
@@ -373,15 +505,11 @@ public static class FromJsonConverter
 
     private static string? ExtractISBNFromPdf(byte[] contents)
     {
-        // Regex for ISBN-10 or ISBN-13
-        
         using var document = PdfDocument.Open(contents);
         foreach (var page in document.GetPages())
         {
             var text = page.Text;
-            
-            //ISBN 978-966-640-578-7
-            
+
             var match = Regex.Match(text, @"ISBN[\s:]*([0-9]{3}-[0-9]{3}-[0-9]{3}-[0-9]{3}-[0-9]{1})");
             if (match.Success)
             {
@@ -589,9 +717,8 @@ public static class FromJsonConverter
                     }
                 }
             }
-            
-            //If DOI doesn't exist in the doc, generate a new DOI
-            var generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink); //PNU
+
+            var generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink);
             Console.WriteLine("Generated doi: " + generatedDoi);
             return generatedDoi;
         }
