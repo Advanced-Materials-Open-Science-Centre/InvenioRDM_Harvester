@@ -369,7 +369,7 @@ public static class FromJsonConverter
             journalMetadata.Add(new XElement(xmlns + "full_title", journalIssnAndName.Item1));
             journalMetadata.Add(new XElement(xmlns + "issn", journalIssnAndName.Item2));
             
-            var doi = ExtractDoi(root, pdfLink);
+            var doi = ExtractDoi(root, pdfLink, journalIssnAndName.Item2);
 
             if (metadata.TryGetProperty("title", out var articleTitleElement))
             {
