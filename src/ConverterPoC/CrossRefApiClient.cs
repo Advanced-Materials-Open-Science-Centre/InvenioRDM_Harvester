@@ -19,6 +19,35 @@ public class CrossrefApiClient
         _client = new HttpClient();
     }
 
+    public async Task<string> GetDoiPrefixOwnerAsync(string prefix)
+    {
+        var url = $"https://api.crossref.org/prefixes/{prefix}";
+        var json = await _client.GetStringAsync(url);
+
+        var result = JsonSerializer.Deserialize<CrossrefPrefixResponse>(json);
+        return result?.Message?.Name ?? "Unknown";
+    }
+    
+    public async Task<CrossrefApiResponse?> DoiExistsAsync(string doi)
+    {
+        if (string.IsNullOrWhiteSpace(doi))
+            throw new ArgumentException("DOI cannot be null or empty.");
+
+        var url = $"https://api.crossref.org/works/{Uri.EscapeDataString(doi)}";
+
+        try
+        {
+            var response = await _client.GetStringAsync(url);
+            var result = JsonSerializer.Deserialize<CrossrefApiResponse>(response);
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"HTTP error: {ex.Message}");
+            return null;
+        }
+    }
+    
     public async Task<string> SubmitMetadataAsync(string fileName, string metadataXml)
     {
         EnsureCredentialsSet();
@@ -41,9 +70,21 @@ public class CrossrefApiClient
         return await response.Content.ReadAsStringAsync();
     }
 
+    public async Task<CrossrefWork?> SearchCrossrefByIsbnAsync(string isbn)
+    {
+        string query = $"https://api.crossref.org/works?query={isbn}&rows=10";
+        var json = await _client.GetStringAsync(query);
+
+        var response = JsonSerializer.Deserialize<CrossrefSearchResponse>(json);
+    
+        return response?.Message?.Items?.FirstOrDefault(w =>
+            w.Isbn != null && w.Isbn.Any(i => i.Replace("-", "") == isbn.Replace("-", ""))
+        );
+    }
+    
     public async Task<string?> GetJournalTitleByISSN(string issn)
     {
-        string url = $"https://api.crossref.org/journals/{issn}";
+        var url = $"https://api.crossref.org/journals/{issn}";
 
         try
         {

@@ -38,7 +38,7 @@ async Task ProcessRecordAsync(string s, InvenioRDMClient invenioRdmClient,
     Console.WriteLine("Record ID: " + s);
             
     var contents = await invenioRdmClient.LoadRecordAsync(s);
-            
+    
     var converted = FromJsonConverter.Convert(invenioRdmClient, crossrefApiClient, contents ?? "");
 
     using var doc = JsonDocument.Parse(contents);
