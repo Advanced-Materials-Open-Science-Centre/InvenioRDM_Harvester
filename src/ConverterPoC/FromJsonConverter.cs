@@ -123,7 +123,7 @@ public static class FromJsonConverter
     private static (string, string)? TryLookForDoi(JsonElement root, 
         CrossrefApiClient crossrefApiClient)
     {
-        if (root.TryGetProperty("metadata", out var metadata))
+        if (root.TryGetProperty("metadata", out _))
         {
             var pdfLink = GetFileLink(root);
 
@@ -158,12 +158,13 @@ public static class FromJsonConverter
         var bookElement = new XElement(xmlns + "book",
             new XAttribute("book_type", "monograph"));
 
-        AddBookMetadata(xmlns, bookElement, root, jats);
+        AddBookMetadata(xmlns, bookElement, root, jats, title?.Item2);
         
         return bookElement;
     }
     
-    private static void AddBookMetadata(XNamespace xmlns, XElement bookElement, JsonElement root, XNamespace jats)
+    private static void AddBookMetadata(XNamespace xmlns, XElement bookElement, JsonElement root, XNamespace jats,
+        string? isbn)
     {
         var bookMetadata = new XElement(xmlns + "book_metadata",
             new XAttribute("language", "en")
@@ -173,7 +174,7 @@ public static class FromJsonConverter
         {
             var pdfLink = GetFileLink(root);
 
-            var doi = ExtractDoi(root, pdfLink);
+            var doi = ExtractDoi(root, pdfLink, isbn);
 
             if (metadata.TryGetProperty("creators", out var creatorsElement) &&
                 creatorsElement.ValueKind == JsonValueKind.Array)
@@ -209,7 +210,7 @@ public static class FromJsonConverter
                 }
             }
 
-            AddIsbn(xmlns, bookMetadata, "978-966-640-578-7");
+            AddIsbn(xmlns, bookMetadata, isbn);
             
             AddPublisher(xmlns, bookMetadata, metadata);
 
@@ -468,7 +469,7 @@ public static class FromJsonConverter
                 if(journalName3 != null)
                     return (journalName3.Title.FirstOrDefault() ?? "", isbn);
 
-                return null;
+                return (null, isbn);
             }
         }
         
@@ -693,7 +694,7 @@ public static class FromJsonConverter
         return citation;
     }
 
-    private static string? ExtractDoi(JsonElement root, string? pdfLink)
+    private static string? ExtractDoi(JsonElement root, string? pdfLink, string? isbn = null)
     {
         try
         {
@@ -718,7 +719,12 @@ public static class FromJsonConverter
                 }
             }
 
-            var generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink);
+            string generatedDoi;
+
+            if (isbn != null)
+                generatedDoi = "10.15330/" + isbn.Replace("-", "");
+            else
+                generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink);
             Console.WriteLine("Generated doi: " + generatedDoi);
             return generatedDoi;
         }
@@ -748,8 +754,6 @@ public static class FromJsonConverter
 
     private static XElement BuildHead(XNamespace crossrefNs, JsonElement root)
     {
-        XNamespace ns = "http://datacite.org/schema/kernel-4";
-
         var publisher = "Vasyl Stefanyk Precarpathian National University";
 
         var creators = ContributorsParser.ConvertContributorsToXml(crossrefNs, root);
@@ -769,7 +773,7 @@ public static class FromJsonConverter
             new XElement(crossrefNs + "timestamp", DateTime.UtcNow.ToString("yyyyMMddHHmmss")), new XElement(
                 crossrefNs + "depositor",
                 new XElement(crossrefNs + "depositor_name", creatorName),
-                new XElement(crossrefNs + "email_address", "test@example.com")
+                new XElement(crossrefNs + "email_address", givenName + "." + surName + "@pnu.edu.ua")
             ),
             new XElement(crossrefNs + "registrant", publisher)
         );
