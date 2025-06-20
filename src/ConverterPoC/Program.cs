@@ -49,7 +49,7 @@ async Task ProcessRecordAsync(string s, InvenioRDMClient invenioRdmClient,
     await File.WriteAllTextAsync($"{s}.json", formattedJson);
     await File.WriteAllTextAsync(xmlFileName, converted);
 
-    var resp = await crossrefApiClient.SubmitMetadataAsync(xmlFileName, converted);
+    //var resp = await crossrefApiClient.SubmitMetadataAsync(xmlFileName, converted);
     
-    Console.WriteLine("CrossRef response: " + resp?.Trim());
+    //Console.WriteLine("CrossRef response: " + resp?.Trim());
 }
