@@ -90,16 +90,16 @@ public static class FromJsonConverter
             ? ExtractJournalIssnAndTitle(fileLink, invenioRdmClient, crossrefApiClient)
             : null;
 
-        if (journalIssnAndName == null)
-        {
-            journalIssnAndName = TryLookForDoi(root, crossrefApiClient);
-        }
-
         var type = root.GetProperty("metadata")
             .GetProperty("resource_type")
             .GetProperty("title")
             .GetProperty("en")
-            .GetString();
+            .GetString() ?? "";
+        
+        if (journalIssnAndName == null)
+        {
+            journalIssnAndName = TryLookForDoi(root, crossrefApiClient, type);
+        }
 
         var docType = DocType(ns, root, jats, crossrefApiClient, journalIssnAndName, type);
 
@@ -108,26 +108,28 @@ public static class FromJsonConverter
         );
     }
 
-    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, CrossrefApiClient crossrefApiClient, (string, string)? journalIssnAndName, string? type)
+    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, CrossrefApiClient crossrefApiClient, (string, string)? journalIssnAndName, string type)
     {
         if (type == "Book")
-            return CreateBook(ns, root, jats, journalIssnAndName, crossrefApiClient);
+            return CreateBook(ns, root, jats, journalIssnAndName);
         
         return journalIssnAndName != null
             ? type == "Book"
-                ? CreateBook(ns, root, jats, journalIssnAndName.Value, crossrefApiClient)
+                ? CreateBook(ns, root, jats, journalIssnAndName.Value)
                 : CreateJournalElement(ns, root, jats, journalIssnAndName.Value)
-            : CreatePresentation(ns, root, jats, crossrefApiClient);
+            : CreatePresentation(ns, root, jats, crossrefApiClient, type);
     }
 
-    private static (string, string)? TryLookForDoi(JsonElement root, 
-        CrossrefApiClient crossrefApiClient)
+    private static (string, string)? TryLookForDoi(
+        JsonElement root, 
+        CrossrefApiClient crossrefApiClient,
+        string publicationType)
     {
         if (root.TryGetProperty("metadata", out _))
         {
             var pdfLink = GetFileLink(root);
 
-            var doi = ExtractDoi(root, pdfLink);
+            var doi = ExtractDoi(root, pdfLink, publicationType);
 
             if (doi != null)
             {
@@ -152,8 +154,7 @@ public static class FromJsonConverter
         return null;
     }
     
-    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title,
-        CrossrefApiClient crossrefApiClient)
+    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title)
     {
         var bookElement = new XElement(xmlns + "book",
             new XAttribute("book_type", "monograph"));
@@ -270,7 +271,7 @@ public static class FromJsonConverter
     }
     
     private static XElement CreatePresentation(XNamespace xmlns, JsonElement root, XNamespace jats,
-        CrossrefApiClient crossrefApiClient)
+        CrossrefApiClient crossrefApiClient, string publicationType)
     {
         var postedContent = new XElement(xmlns + "posted_content",
             new XAttribute("type", "report")
@@ -280,7 +281,7 @@ public static class FromJsonConverter
         {
             var pdfLink = GetFileLink(root);
            
-            var doi = ExtractDoi(root, pdfLink);
+            var doi = ExtractDoi(root, pdfLink, publicationType);
 
             if (doi != null)
             {
@@ -694,8 +695,18 @@ public static class FromJsonConverter
         return citation;
     }
 
-    private static string? ExtractDoi(JsonElement root, string? pdfLink, string? isbn = null)
+    private static string? ExtractDoi(JsonElement root, string? pdfLink, string publicationType, string? isbn = null)
     {
+        if (string.Equals(publicationType, "dataset", StringComparison.InvariantCultureIgnoreCase))
+        {
+            var now = DateTime.Now;
+            var existingDoi = DatasetDoiNumberProvider.GetCurrentAndSaveNewDoiNumber(now);
+
+            var generatedDoi = "10.15330/dataset." + now.ToString("yy.MM") + "." + existingDoi.ToString("00");
+            Console.WriteLine("Generated doi: " + generatedDoi);
+            return generatedDoi;
+        }
+        
         try
         {
             if (root.TryGetProperty("metadata", out var metadata) &&
