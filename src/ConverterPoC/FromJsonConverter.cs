@@ -111,11 +111,11 @@ public static class FromJsonConverter
     private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, CrossrefApiClient crossrefApiClient, (string, string)? journalIssnAndName, string type)
     {
         if (type == "Book")
-            return CreateBook(ns, root, jats, journalIssnAndName, crossrefApiClient);
+            return CreateBook(ns, root, jats, journalIssnAndName);
         
         return journalIssnAndName != null
             ? type == "Book"
-                ? CreateBook(ns, root, jats, journalIssnAndName.Value, crossrefApiClient)
+                ? CreateBook(ns, root, jats, journalIssnAndName.Value)
                 : CreateJournalElement(ns, root, jats, journalIssnAndName.Value)
             : CreatePresentation(ns, root, jats, crossrefApiClient, type);
     }
@@ -154,8 +154,7 @@ public static class FromJsonConverter
         return null;
     }
     
-    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title,
-        CrossrefApiClient crossrefApiClient)
+    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title)
     {
         var bookElement = new XElement(xmlns + "book",
             new XAttribute("book_type", "monograph"));
@@ -703,7 +702,7 @@ public static class FromJsonConverter
             var now = DateTime.Now;
             var existingDoi = DatasetDoiNumberProvider.GetCurrentAndSaveNewDoiNumber(now);
 
-            var generatedDoi = "10.15330/dataset." + now.ToString("yy.MM") + "." + existingDoi;
+            var generatedDoi = "10.15330/dataset." + now.ToString("yy.MM") + "." + existingDoi.ToString("00");
             Console.WriteLine("Generated doi: " + generatedDoi);
             return generatedDoi;
         }
