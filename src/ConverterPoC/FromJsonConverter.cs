@@ -85,52 +85,52 @@ public static class FromJsonConverter
         CrossrefApiClient crossrefApiClient
     )
     {
-        var fileLink = GetFileLink(root);
-        var journalIssnAndName = fileLink != null
-            ? ExtractJournalIssnAndTitle(fileLink, invenioRdmClient, crossrefApiClient)
-            : null;
-
         var type = root.GetProperty("metadata")
             .GetProperty("resource_type")
             .GetProperty("title")
             .GetProperty("en")
             .GetString() ?? "";
         
+        var fileLink = GetFileLink(root);
+        var journalIssnAndName = fileLink != null && type == "Book"
+            ? ExtractJournalIssnAndTitle(fileLink, invenioRdmClient, crossrefApiClient)
+            : null;
+        
+        var pdfLink = GetFileLink(root);
+
+        var doi = ExtractDoi(root, pdfLink, type);
+        
         if (journalIssnAndName == null)
         {
-            journalIssnAndName = TryLookForDoi(root, crossrefApiClient, type);
+            journalIssnAndName = TryLookForDoi(root, crossrefApiClient, doi);
         }
 
-        var docType = DocType(ns, root, jats, crossrefApiClient, journalIssnAndName, type);
+        var docType = DocType(ns, root, jats, crossrefApiClient, journalIssnAndName, type, doi);
 
         return new XElement(ns + "body",
             docType
         );
     }
 
-    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, CrossrefApiClient crossrefApiClient, (string, string)? journalIssnAndName, string type)
+    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, CrossrefApiClient crossrefApiClient, (string, string)? journalIssnAndName, string type, string? doi)
     {
         if (type == "Book")
-            return CreateBook(ns, root, jats, journalIssnAndName);
+            return CreateBook(ns, root, jats, journalIssnAndName, doi);
         
         return journalIssnAndName != null
             ? type == "Book"
-                ? CreateBook(ns, root, jats, journalIssnAndName.Value)
-                : CreateJournalElement(ns, root, jats, journalIssnAndName.Value)
-            : CreatePresentation(ns, root, jats, crossrefApiClient, type);
+                ? CreateBook(ns, root, jats, journalIssnAndName.Value, doi)
+                : CreateJournalElement(ns, root, jats, journalIssnAndName.Value, doi)
+            : CreatePresentation(ns, root, jats, crossrefApiClient, doi);
     }
 
     private static (string, string)? TryLookForDoi(
         JsonElement root, 
         CrossrefApiClient crossrefApiClient,
-        string publicationType)
+        string? doi)
     {
         if (root.TryGetProperty("metadata", out _))
         {
-            var pdfLink = GetFileLink(root);
-
-            var doi = ExtractDoi(root, pdfLink, publicationType);
-
             if (doi != null)
             {
                 var re = crossrefApiClient.DoiExistsAsync(doi).Result;
@@ -154,18 +154,18 @@ public static class FromJsonConverter
         return null;
     }
     
-    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title)
+    private static XElement CreateBook(XNamespace xmlns, JsonElement root, XNamespace jats, (string, string)? title, string? doi)
     {
         var bookElement = new XElement(xmlns + "book",
             new XAttribute("book_type", "monograph"));
 
-        AddBookMetadata(xmlns, bookElement, root, jats, title?.Item2);
+        AddBookMetadata(xmlns, bookElement, root, jats, title?.Item2, doi);
         
         return bookElement;
     }
     
     private static void AddBookMetadata(XNamespace xmlns, XElement bookElement, JsonElement root, XNamespace jats,
-        string? isbn)
+        string? isbn, string? doi)
     {
         var bookMetadata = new XElement(xmlns + "book_metadata",
             new XAttribute("language", "en")
@@ -173,9 +173,7 @@ public static class FromJsonConverter
 
         if (root.TryGetProperty("metadata", out var metadata))
         {
-            var pdfLink = GetFileLink(root);
-
-            var doi = ExtractDoi(root, pdfLink, isbn);
+            
 
             if (metadata.TryGetProperty("creators", out var creatorsElement) &&
                 creatorsElement.ValueKind == JsonValueKind.Array)
@@ -215,6 +213,8 @@ public static class FromJsonConverter
             
             AddPublisher(xmlns, bookMetadata, metadata);
 
+            var pdfLink = GetFileLink(root);
+            
             if (!string.IsNullOrEmpty(doi))
             {
                 bookMetadata.Add(new XElement(xmlns + "doi_data",
@@ -271,7 +271,7 @@ public static class FromJsonConverter
     }
     
     private static XElement CreatePresentation(XNamespace xmlns, JsonElement root, XNamespace jats,
-        CrossrefApiClient crossrefApiClient, string publicationType)
+        CrossrefApiClient crossrefApiClient, string? doi)
     {
         var postedContent = new XElement(xmlns + "posted_content",
             new XAttribute("type", "report")
@@ -281,8 +281,6 @@ public static class FromJsonConverter
         {
             var pdfLink = GetFileLink(root);
            
-            var doi = ExtractDoi(root, pdfLink, publicationType);
-
             if (doi != null)
             {
                 var re = crossrefApiClient.DoiExistsAsync(doi).Result;
@@ -354,7 +352,7 @@ public static class FromJsonConverter
     }
 
     private static XElement CreateJournalElement(XNamespace xmlns, JsonElement root, XNamespace jats, 
-        (string, string) journalIssnAndName)
+        (string, string) journalIssnAndName, string? doi)
     {
         var journal = new XElement(xmlns + "journal");
         var journalMetadata = new XElement(xmlns + "journal_metadata");
@@ -370,8 +368,6 @@ public static class FromJsonConverter
             journalMetadata.Add(new XElement(xmlns + "full_title", journalIssnAndName.Item1));
             journalMetadata.Add(new XElement(xmlns + "issn", journalIssnAndName.Item2));
             
-            var doi = ExtractDoi(root, pdfLink, journalIssnAndName.Item2);
-
             if (metadata.TryGetProperty("title", out var articleTitleElement))
             {
                 var articleTitle = articleTitleElement.GetString();
