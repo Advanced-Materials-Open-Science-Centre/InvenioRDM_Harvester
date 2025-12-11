@@ -1,7 +1,4 @@
 ﻿{
-  "ApiUrl": "https://dataset.pnu.edu.ua/",
-  "AccessToken": "7heTr6xsqnRCRGprAfVpEGJtxwxDsMlLu0PWQtn71w4xpZxe7MoxPdjIaa2h",
-  "CrossRefUser": "vspn",
-  "CrossRefPassword": "vs_2329_pn",
-  "CrossRefApiUrl": "https://test.crossref.org/servlet/deposit"
+  "ApiUrl": "zzz",
+  "AccessToken": "yyy"
 }
