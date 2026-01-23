@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConverterPoC", "ConverterPoC\ConverterPoC.csproj", "{2A062FA8-3550-4779-92D6-584A7C0D1EAF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater.Console", "Updater.Console\Updater.Console.csproj", "{E322963C-92ED-4994-943E-88C010ABBC8D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{2A062FA8-3550-4779-92D6-584A7C0D1EAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2A062FA8-3550-4779-92D6-584A7C0D1EAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2A062FA8-3550-4779-92D6-584A7C0D1EAF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E322963C-92ED-4994-943E-88C010ABBC8D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E322963C-92ED-4994-943E-88C010ABBC8D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E322963C-92ED-4994-943E-88C010ABBC8D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E322963C-92ED-4994-943E-88C010ABBC8D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
