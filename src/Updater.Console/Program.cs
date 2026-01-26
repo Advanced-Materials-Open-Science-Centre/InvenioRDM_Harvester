@@ -1,9 +1,9 @@
-﻿using ConverterPoC;
+﻿using System.Text.RegularExpressions;
+using ConverterPoC;
 
-var outputFolder = Path.Combine(Directory.GetCurrentDirectory(), "output");
-Directory.CreateDirectory(outputFolder);
+var outputFolder = Path.Combine("");
 
-var files = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.xml");
+var files = Directory.GetFiles(outputFolder, "*.xml");
 
 var read = files.Select(r => (r, File.ReadAllText(r))).ToList();
 
@@ -19,7 +19,7 @@ var crossrefClient = new CrossrefApiClient(
 
 foreach (var (path, xml) in read)
 {
-    var replaced = xml.Replace("dataset.pnu.edu.ua", "dataset.cnu.edu.ua");
+    var replaced = PostProcess(xml);
 
     var fileName = Path.GetFileName(path);
     var resp = await crossrefClient.SubmitMetadataAsync(fileName, replaced);
@@ -29,3 +29,20 @@ foreach (var (path, xml) in read)
 }
 
 Console.WriteLine();
+
+string PostProcess(string s)
+{
+    var withUpdateLinks = s.Replace("dataset.pnu.edu.ua", "dataset.cnu.edu.ua");
+
+    var pattern = @"<timestamp>\d{14}</timestamp>";
+    
+    var newTimestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+    
+    var replacement = $"<timestamp>{newTimestamp}</timestamp>";
+
+    var updatedXml = Regex.Replace(withUpdateLinks, pattern, replacement);
+    
+    Thread.Sleep(5000);
+    
+    return updatedXml;
+}
