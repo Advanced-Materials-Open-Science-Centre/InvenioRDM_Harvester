@@ -19,7 +19,9 @@ try
 
     foreach (var mapping in config.DoiMappings ?? [])
     {
-        await ProcessRecordAsync(mapping, rdmClient, crossrefClient);
+        var recordUrl = config.ApiUrl + "records/" + mapping.DepositoryRecordId;
+        
+        await ProcessRecordAsync(mapping, rdmClient, crossrefClient, recordUrl);
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
 }
@@ -28,8 +30,11 @@ catch (Exception ex)
     Console.WriteLine("Exception: " + ex.Message);
 }
 
-async Task ProcessRecordAsync(DoiMapping mapping, InvenioRDMClient invenioRdmClient,
-    CrossrefApiClient crossrefApiClient)
+async Task ProcessRecordAsync(
+    DoiMapping mapping, 
+    InvenioRDMClient invenioRdmClient,
+    CrossrefApiClient crossrefApiClient,
+    string recordUrl)
 {
     Console.WriteLine("*****************");
     Console.WriteLine("Record ID: " + mapping.DepositoryRecordId);
@@ -41,7 +46,8 @@ async Task ProcessRecordAsync(DoiMapping mapping, InvenioRDMClient invenioRdmCli
         invenioRdmClient,
         crossrefApiClient,
         contents ?? "",
-        mapping.Doi
+        mapping.Doi,
+        recordUrl
     );
 
     using var doc = JsonDocument.Parse(contents);
