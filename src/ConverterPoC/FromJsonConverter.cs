@@ -12,7 +12,6 @@ namespace ConverterPoC;
 public static class FromJsonConverter
 {
     public static string? Convert(
-        InvenioRDMClient invenioRdmClient,
         CrossrefApiClient crossrefApiClient,
         string dataCiteJsonContents, 
         string doi,
@@ -22,9 +21,7 @@ public static class FromJsonConverter
         {
             using var dataCiteDoc = JsonDocument.Parse(dataCiteJsonContents);
 
-            var crossrefDoc = ConvertDataCiteToCrossref(
-                invenioRdmClient,
-                crossrefApiClient,
+            var crossrefDoc = ConvertDataCiteToCrossref(crossrefApiClient,
                 dataCiteDoc.RootElement,
                 doi,
                 recordUrl
@@ -60,7 +57,6 @@ public static class FromJsonConverter
     }
 
     private static XDocument ConvertDataCiteToCrossref(
-        InvenioRDMClient invenioRdmClient, 
         CrossrefApiClient crossrefApiClient, 
         JsonElement dataCiteDoc,
         string doi,
@@ -84,7 +80,7 @@ public static class FromJsonConverter
                     "http://www.crossref.org/schema/5.3.1 http://www.crossref.org/schemas/crossref5.3.1.xsd"
                 ),
                 BuildHead(ns, dataCiteDoc),
-                BuildBody(ns, dataCiteDoc, jats, invenioRdmClient, crossrefApiClient, doi, recordUrl)
+                BuildBody(ns, dataCiteDoc, jats, crossrefApiClient, doi, recordUrl)
             )
         );
 
@@ -96,7 +92,6 @@ public static class FromJsonConverter
         XNamespace ns, 
         JsonElement root, 
         XNamespace jats,
-        InvenioRDMClient invenioRdmClient,
         CrossrefApiClient crossrefApiClient,
         string doi,
         string recordUrl
@@ -108,17 +103,7 @@ public static class FromJsonConverter
             .GetProperty("en")
             .GetString() ?? "";
         
-        var fileLink = GetFileLink(root);
-        var journalIssnAndName = fileLink != null && (type == "Book" || type == "Journal article")
-            ? ExtractJournalIssnAndTitle(fileLink, invenioRdmClient, crossrefApiClient)
-            : null;
-        
-        if (journalIssnAndName == null)
-        {
-            journalIssnAndName = TryLookForDoi(root, crossrefApiClient, doi);
-        }
-
-        var docType = DocType(ns, root, jats, crossrefApiClient, journalIssnAndName, type, doi, recordUrl);
+        var docType = DocType(ns, root, jats, crossrefApiClient, type, doi, recordUrl);
 
         return new XElement(ns + "body",
             docType
@@ -127,63 +112,30 @@ public static class FromJsonConverter
 
     private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, 
         CrossrefApiClient crossrefApiClient, 
-        (string, string)? journalIssnAndName, 
         string type, 
         string? doi,
         string recordUrl)
     {
         if (type == "Book")
-            return CreateBook(ns, root, jats, journalIssnAndName, doi, recordUrl);
+            return CreateBook(ns, root, jats, doi, recordUrl);
+
+        if (type == "Journal article")
+            return CreateJournalElement(ns, root, jats, doi, recordUrl);
         
-        return journalIssnAndName != null
-            ? type == "Book"
-                ? CreateBook(ns, root, jats, journalIssnAndName.Value, doi, recordUrl)
-                : CreateJournalElement(ns, root, jats, journalIssnAndName.Value, doi, recordUrl)
-            : CreatePresentation(ns, root, jats, crossrefApiClient, doi, recordUrl);
-    }
-
-    private static (string, string)? TryLookForDoi(
-        JsonElement root, 
-        CrossrefApiClient crossrefApiClient,
-        string? doi)
-    {
-        if (root.TryGetProperty("metadata", out _))
-        {
-            if (doi != null)
-            {
-                var re = crossrefApiClient.DoiExistsAsync(doi).Result;
-
-                if (re != null)
-                {
-                    Console.WriteLine($"Already published: Doi: {doi}");
-                    Console.WriteLine($"Doi: {doi}");
-
-                    if (re.Message.Issn.Any())
-                    {
-                        var issn = re.Message.Issn.First();
-                        var journalName = crossrefApiClient.GetJournalTitleByISSN(issn).Result;
-
-                        return (journalName, issn);
-                    }
-                }
-            }
-        }
-        
-        return null;
+        return CreatePresentation(ns, root, jats, crossrefApiClient, doi, recordUrl);
     }
     
     private static XElement CreateBook(
         XNamespace xmlns, 
         JsonElement root, 
         XNamespace jats, 
-        (string, string)? title, 
         string? doi,
         string recordUrl)
     {
         var bookElement = new XElement(xmlns + "book",
             new XAttribute("book_type", "monograph"));
 
-        AddBookMetadata(xmlns, bookElement, root, jats, title?.Item2, doi, recordUrl);
+        AddBookMetadata(xmlns, bookElement, root, jats, doi, recordUrl);
         
         return bookElement;
     }
@@ -193,7 +145,6 @@ public static class FromJsonConverter
         XElement bookElement, 
         JsonElement root, 
         XNamespace jats,
-        string? isbn,
         string? doi,
         string recordUrl)
     {
@@ -237,8 +188,6 @@ public static class FromJsonConverter
                 }
             }
 
-            AddIsbn(xmlns, bookMetadata, isbn);
-            
             AddPublisher(xmlns, bookMetadata, metadata);
 
             if (!string.IsNullOrEmpty(doi))
@@ -264,25 +213,6 @@ public static class FromJsonConverter
         }
 
         bookElement.Add(bookMetadata);
-    }
-
-    private static void AddIsbn(XNamespace xmlns, XElement bookMetadata, string? isbn)
-    {
-        if (!string.IsNullOrEmpty(isbn))
-        {
-            var cleanIsbn = isbn.Replace("-", "").Replace(" ", "");
-
-            if (cleanIsbn.Length == 13)
-            {
-                bookMetadata.Add(new XElement(xmlns + "isbn",
-                    new XAttribute("media_type", "print"), cleanIsbn));
-            }
-        }
-        else
-        {
-            bookMetadata.Add(new XElement(xmlns + "noisbn",
-                new XAttribute("reason", "monograph"))); 
-        }
     }
 
     private static void AddPublisher(XNamespace xmlns, XElement bookMetadata, JsonElement metadata)
@@ -375,9 +305,12 @@ public static class FromJsonConverter
         return postedContent;
     }
 
-    private static XElement CreateJournalElement(XNamespace xmlns, JsonElement root, XNamespace jats, 
-        (string, string) journalIssnAndName, 
-        string? doi, string recordUrl)
+    private static XElement CreateJournalElement(
+        XNamespace xmlns, 
+        JsonElement root, 
+        XNamespace jats, 
+        string? doi, 
+        string recordUrl)
     {
         var journal = new XElement(xmlns + "journal");
         var journalMetadata = new XElement(xmlns + "journal_metadata");
@@ -388,9 +321,6 @@ public static class FromJsonConverter
         
         if (root.TryGetProperty("metadata", out var metadata))
         {
-            journalMetadata.Add(new XElement(xmlns + "full_title", journalIssnAndName.Item1));
-            journalMetadata.Add(new XElement(xmlns + "issn", journalIssnAndName.Item2));
-            
             if (metadata.TryGetProperty("title", out var articleTitleElement))
             {
                 var articleTitle = articleTitleElement.GetString();
@@ -465,164 +395,7 @@ public static class FromJsonConverter
 
         return journal;
     }
-
-    private static (string, string)? ExtractJournalIssnAndTitle(string fileLink,
-        InvenioRDMClient invenioRdmClient, CrossrefApiClient crossrefApiClient)
-    {
-        var file = invenioRdmClient.GetAsync(fileLink).Result;
-        
-        if (file == null)
-            return null;
-
-        var bytes = file;
-
-        var issn = ExtractIssn(bytes);
-
-        if (issn == null)
-        {
-            var isbn = ExtractISBNFromPdf(bytes);
-
-            if (isbn != null)
-            {
-                var journalName3 = crossrefApiClient.SearchCrossrefByIsbnAsync(isbn).Result;
-                
-                if(journalName3 != null)
-                    return (journalName3.Title.FirstOrDefault() ?? "", isbn);
-
-                return (null, isbn);
-            }
-        }
-        
-        var journalName = crossrefApiClient.GetJournalTitleByISSN(issn).Result;
-
-        return (journalName, issn);
-    }
-
-    private static string? ExtractIssn(byte[] pdfPath)
-    {
-        try
-        {
-            return ExtractISSNFromPdf(pdfPath);
-        }
-        catch (Exception e)
-        {
-            try
-            {
-                return ExtractISSNFromDocx(pdfPath);
-            }
-            catch (Exception e1)
-            {
-                try
-                {
-                    return ExtractISBNFromPdf(pdfPath);
-                }
-                catch (Exception e2)
-                {
-                    return null;
-                }
-            }
-        }
-    }
-
-    private static string? ExtractISBNFromPdf(byte[] contents)
-    {
-        using var document = PdfDocument.Open(contents);
-        foreach (var page in document.GetPages())
-        {
-            var text = page.Text;
-
-            var match = Regex.Match(text, @"ISBN[\s:]*([0-9]{3}-[0-9]{3}-[0-9]{3}-[0-9]{3}-[0-9]{1})");
-            if (match.Success)
-            {
-                string isbn = match.Value
-                    .Replace("ISBN","")    
-                    .Replace("-", "").Replace(" ", "");
-                if (IsValidIsbn(isbn))
-                    return match.Groups[1].Value.Replace("ISBN","")  ;
-            }
-        }
-
-        return null;
-    }
     
-    static bool IsValidIsbn(string isbn)
-    {
-        if (isbn.Length == 10)
-        {
-            int sum = 0;
-            for (int i = 0; i < 9; i++)
-                sum += (10 - i) * (isbn[i] - '0');
-            char check = isbn[9];
-            sum += (check == 'X' || check == 'x') ? 10 : (check - '0');
-            return sum % 11 == 0;
-        }
-        else if (isbn.Length == 13)
-        {
-            int sum = 0;
-            for (int i = 0; i < 12; i++)
-                sum += (isbn[i] - '0') * ((i % 2 == 0) ? 1 : 3);
-            int checkDigit = (10 - (sum % 10)) % 10;
-            return checkDigit == (isbn[12] - '0');
-        }
-        return false;
-    }
-    
-    private static string? ExtractISSNFromDocx(byte[] pdfPath)
-    {
-        using var stream = new MemoryStream(pdfPath);
-        var text = OpenXmlWordSearcher.ReadTextFromDocx(stream);
-
-        
-        var match = Regex.Match(text, @"ISSN[\s:]*([0-9]{4}-[0-9]{3}[\dXx])");
-        if (match.Success)
-        {
-            return match.Groups[1].Value;
-        }
-        
-        return null;
-    }
-
-    private static string? ExtractISSNFromPdf(byte[] contents)
-    {
-        using var document = PdfDocument.Open(contents);
-        foreach (var page in document.GetPages())
-        {
-            var text = page.Text;
-
-            var match = Regex.Match(text, @"ISSN[\s:]*([0-9]{4}-[0-9]{3}[\dXx])");
-            if (match.Success)
-            {
-                return match.Groups[1].Value;
-            }
-        }
-
-        return null;
-    }
-
-    private static string? GetFileLink(JsonElement root)
-    {
-        if (root.TryGetProperty("files", out var files) &&
-            files.TryGetProperty("entries", out var entries))
-        {
-            foreach (var p in entries.EnumerateObject())
-            {
-                var file = p.Value;
-
-                if (file.TryGetProperty("mimetype", out var mimetype) &&
-                    !string.IsNullOrEmpty(mimetype.GetString()))
-                {
-                    if (file.TryGetProperty("links", out var links) &&
-                        links.TryGetProperty("content", out var fileLink))
-                    {
-                        return fileLink.GetString();
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
     private static void AddAbstractFromDataCite(JsonElement root, XElement parentElement, XNamespace jats)
     {
         try
