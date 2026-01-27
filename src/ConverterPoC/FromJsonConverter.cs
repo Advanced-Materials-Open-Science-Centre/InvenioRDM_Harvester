@@ -1,7 +1,6 @@
 ﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -12,13 +11,21 @@ namespace ConverterPoC;
 
 public static class FromJsonConverter
 {
-    public static string? Convert(InvenioRDMClient invenioRdmClient, CrossrefApiClient crossrefApiClient, string dataCiteJsonContents)
+    public static string? Convert(InvenioRDMClient invenioRdmClient,
+        CrossrefApiClient crossrefApiClient,
+        string dataCiteJsonContents, 
+        string doi)
     {
         try
         {
             using var dataCiteDoc = JsonDocument.Parse(dataCiteJsonContents);
 
-            var crossrefDoc = ConvertDataCiteToCrossref(invenioRdmClient, crossrefApiClient, dataCiteDoc.RootElement);
+            var crossrefDoc = ConvertDataCiteToCrossref(
+                invenioRdmClient,
+                crossrefApiClient,
+                dataCiteDoc.RootElement,
+                doi
+            );
 
             using var memoryStream = new MemoryStream();
 
@@ -49,7 +56,11 @@ public static class FromJsonConverter
         return null;
     }
 
-    static XDocument ConvertDataCiteToCrossref(InvenioRDMClient invenioRdmClient, CrossrefApiClient crossrefApiClient, JsonElement dataCiteDoc)
+    private static XDocument ConvertDataCiteToCrossref(
+        InvenioRDMClient invenioRdmClient, 
+        CrossrefApiClient crossrefApiClient, 
+        JsonElement dataCiteDoc,
+        string doi)
     {
         XNamespace ns = "http://www.crossref.org/schema/5.3.1";
         XNamespace ai = "http://www.crossref.org/AccessIndicators.xsd";
@@ -69,7 +80,7 @@ public static class FromJsonConverter
                     "http://www.crossref.org/schema/5.3.1 http://www.crossref.org/schemas/crossref5.3.1.xsd"
                 ),
                 BuildHead(ns, dataCiteDoc),
-                BuildBody(ns, dataCiteDoc, jats, invenioRdmClient, crossrefApiClient)
+                BuildBody(ns, dataCiteDoc, jats, invenioRdmClient, crossrefApiClient, doi)
             )
         );
 
@@ -82,7 +93,8 @@ public static class FromJsonConverter
         JsonElement root, 
         XNamespace jats,
         InvenioRDMClient invenioRdmClient,
-        CrossrefApiClient crossrefApiClient
+        CrossrefApiClient crossrefApiClient,
+        string doi
     )
     {
         var type = root.GetProperty("metadata")
@@ -95,10 +107,6 @@ public static class FromJsonConverter
         var journalIssnAndName = fileLink != null && type == "Book"
             ? ExtractJournalIssnAndTitle(fileLink, invenioRdmClient, crossrefApiClient)
             : null;
-        
-        var pdfLink = GetFileLink(root);
-
-        var doi = ExtractDoi(root, pdfLink, type);
         
         if (journalIssnAndName == null)
         {
@@ -689,74 +697,6 @@ public static class FromJsonConverter
         citation.Add(elements);
 
         return citation;
-    }
-
-    private static string? ExtractDoi(JsonElement root, string? pdfLink, string publicationType, string? isbn = null)
-    {
-        if (string.Equals(publicationType, "dataset", StringComparison.InvariantCultureIgnoreCase))
-        {
-            var now = DateTime.Now;
-            var existingDoi = DatasetDoiNumberProvider.GetCurrentAndSaveNewDoiNumber(now);
-
-            var generatedDoi = "10.15330/dataset." + now.ToString("yy.MM") + "." + existingDoi.ToString("00");
-            Console.WriteLine("Generated doi: " + generatedDoi);
-            return generatedDoi;
-        }
-        
-        try
-        {
-            if (root.TryGetProperty("metadata", out var metadata) &&
-                metadata.TryGetProperty("identifiers", out var identifiers))
-            {
-                foreach (var identifier in identifiers.EnumerateArray())
-                {
-                    if (identifier.TryGetProperty("scheme", out var scheme) &&
-                        scheme.GetString() == "crossreffunderid" &&
-                        identifier.TryGetProperty("identifier", out var doiElement1))
-                    {
-                        return doiElement1.GetString()?.Replace("DOI:", "");
-                    }
-                    
-                    if (identifier.TryGetProperty("scheme", out var scheme2) &&
-                        scheme2.GetString() == "doi" &&
-                        identifier.TryGetProperty("identifier", out var doiElement2))
-                    {
-                        return doiElement2.GetString();
-                    }
-                }
-            }
-
-            string generatedDoi;
-
-            if (isbn != null)
-                generatedDoi = "10.15330/" + isbn.Replace("-", "");
-            else
-                generatedDoi = "10.15330/" + GenerateSuffixFromFileLink(pdfLink);
-            Console.WriteLine("Generated doi: " + generatedDoi);
-            return generatedDoi;
-        }
-        catch
-        {
-        }
-
-        return null;
-    }
-
-    private static string GenerateSuffixFromFileLink(string? pdfLink)
-    {
-        if (pdfLink != null)
-        {
-            var decoded = WebUtility.UrlDecode(pdfLink);
-            
-            var fileNamePart = decoded.Split("/").FirstOrDefault(t => t.Contains(".pdf") || t.Contains(".docx")) ?? "";
-
-            return string.Join("", fileNamePart
-                    .Where(t => char.IsAsciiDigit(t) || t == '_' || t == '-')
-                    .Select(t => char.IsAsciiDigit(t) ? t : '.'))
-                .Trim('.');
-        }
-
-        return Guid.NewGuid().ToString("D").Replace("-", ".");
     }
 
     private static XElement BuildHead(XNamespace crossrefNs, JsonElement root)

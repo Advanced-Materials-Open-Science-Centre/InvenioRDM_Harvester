@@ -1,4 +1,13 @@
 ﻿{
   "ApiUrl": "zzz",
-  "AccessToken": "yyy"
+  "AccessToken": "yyy",
+  "CrossRefUser": "aaa",
+  "CrossRefPassword": "bbb",
+  "CrossRefApiUrl": "ccc",
+  "DoiMappings":[
+    {
+      "Doi":"doi",
+      "DepositoryRecordId":"id"
+    }
+  ]
 }

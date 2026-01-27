@@ -9,6 +9,7 @@ public class Config
     public string CrossRefUser { get; set; }
     public string CrossRefPassword { get; set; }
     public string CrossRefApiUrl { get; set; }
+    public DoiMapping[] DoiMappings { get; set; } = [];
 
     public static Config Load(string filePath)
     {
@@ -18,4 +19,10 @@ public class Config
         var json = File.ReadAllText(filePath);
         return JsonSerializer.Deserialize<Config>(json);
     }
+}
+
+public class DoiMapping
+{
+    public string Doi { get; set; }
+    public string DepositoryRecordId { get; set; }
 }
