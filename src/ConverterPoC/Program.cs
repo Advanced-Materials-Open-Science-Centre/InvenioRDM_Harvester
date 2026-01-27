@@ -5,9 +5,6 @@ try
 {
     var config = Config.Load("config.json");
 
-    if (args == null || args.Length == 0)
-        throw new ArgumentException("Please provide record ID");
-            
     Console.WriteLine("Invenio RDM URL: " + config.ApiUrl);
     Console.WriteLine("CrossRef API URL: " + config.CrossRefApiUrl);
     
@@ -20,9 +17,11 @@ try
         apiUrl: config.CrossRefApiUrl
     );
 
-    foreach (var recordId in args)
+    foreach (var mapping in config.DoiMappings ?? [])
     {
-        await ProcessRecordAsync(recordId, rdmClient, crossrefClient);
+        var recordUrl = config.ApiUrl + "records/" + mapping.DepositoryRecordId;
+        
+        await ProcessRecordAsync(mapping, rdmClient, crossrefClient, recordUrl);
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
 }
@@ -31,22 +30,32 @@ catch (Exception ex)
     Console.WriteLine("Exception: " + ex.Message);
 }
 
-async Task ProcessRecordAsync(string s, InvenioRDMClient invenioRdmClient,
-    CrossrefApiClient crossrefApiClient)
+async Task ProcessRecordAsync(
+    DoiMapping mapping, 
+    InvenioRDMClient invenioRdmClient,
+    CrossrefApiClient crossrefApiClient,
+    string recordUrl)
 {
     Console.WriteLine("*****************");
-    Console.WriteLine("Record ID: " + s);
+    Console.WriteLine("Record ID: " + mapping.DepositoryRecordId);
+    Console.WriteLine("DOI: " + mapping.Doi);
             
-    var contents = await invenioRdmClient.LoadRecordAsync(s);
-    
-    var converted = FromJsonConverter.Convert(invenioRdmClient, crossrefApiClient, contents ?? "");
+    var contents = await invenioRdmClient.LoadRecordAsync(mapping.DepositoryRecordId);
+
+    var converted = FromJsonConverter.Convert(
+        invenioRdmClient,
+        crossrefApiClient,
+        contents ?? "",
+        mapping.Doi,
+        recordUrl
+    );
 
     using var doc = JsonDocument.Parse(contents);
     var formattedJson = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
-    var xmlFileName = $"{s}.xml";
+    var xmlFileName = $"{mapping.DepositoryRecordId}.xml";
             
-    await File.WriteAllTextAsync($"{s}.json", formattedJson);
+    await File.WriteAllTextAsync($"{mapping.DepositoryRecordId}.json", formattedJson);
     await File.WriteAllTextAsync(xmlFileName, converted);
 
     var resp = await crossrefApiClient.SubmitMetadataAsync(xmlFileName, converted);
