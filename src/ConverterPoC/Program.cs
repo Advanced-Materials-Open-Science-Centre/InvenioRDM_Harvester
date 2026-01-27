@@ -42,9 +42,7 @@ async Task ProcessRecordAsync(
             
     var contents = await invenioRdmClient.LoadRecordAsync(mapping.DepositoryRecordId);
 
-    var converted = FromJsonConverter.Convert(
-        invenioRdmClient,
-        crossrefApiClient,
+    var converted = FromJsonConverter.Convert(crossrefApiClient,
         contents ?? "",
         mapping.Doi,
         recordUrl
