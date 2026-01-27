@@ -2,7 +2,7 @@
 
 namespace ConverterPoC;
 
-class Config
+public class Config
 {
     public string ApiUrl { get; set; }
     public string AccessToken { get; set; }
