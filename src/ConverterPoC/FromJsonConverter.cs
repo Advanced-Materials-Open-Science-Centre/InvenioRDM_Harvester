@@ -327,6 +327,8 @@ public static class FromJsonConverter
                 journalArticle.Add(new XElement(xmlns + "titles",
                     new XElement(xmlns + "title", articleTitle)
                 ));
+                
+                journalMetadata.Add(new XElement(xmlns + "full_title", articleTitle));
             }
 
             if (metadata.TryGetProperty("creators", out var creatorsElement) &&
