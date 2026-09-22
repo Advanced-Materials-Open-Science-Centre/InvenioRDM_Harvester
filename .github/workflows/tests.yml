@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # ConverterPoC and its tests target net9.0, Updater.Console targets net10.0
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore src/ConverterPoC.sln
+
+      - name: Build
+        run: dotnet build src/ConverterPoC.sln --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test src/ConverterPoC.sln --no-build --configuration Release --logger "console;verbosity=normal"
