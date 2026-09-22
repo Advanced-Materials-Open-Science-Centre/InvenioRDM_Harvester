@@ -20,6 +20,13 @@ public class CrossrefParserIntegrationTests
 
     [Theory]
     [InlineData("ej8xg-c9628")] // Book with an ISBN identifier
+    [InlineData("kej9f-w3t43")] // Dataset
+    [InlineData("qzt09-98r12")] // Dataset
+    [InlineData("dzk9x-70170")] // Publication
+    [InlineData("dfzqr-f9b81")] // Publication
+    [InlineData("aevms-4jb16")] // Dataset
+    [InlineData("n0w35-kyj13")] // Dataset
+    [InlineData("aaz12-88b42")] // Dataset
     public async Task RealRecord_ConvertedXml_PassesCrossrefParser(string recordId)
     {
         var xml = await ConvertRealRecordAsync(recordId);
