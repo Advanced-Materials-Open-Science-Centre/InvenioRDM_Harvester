@@ -4,7 +4,7 @@ namespace ConverterPoC.Tests;
 
 public class FromJsonConverterBookTests
 {
-    private static readonly XNamespace Crossref = "http://www.crossref.org/schema/5.3.1";
+    private static readonly XNamespace Crossref = TestRecords.Crossref;
 
     [Fact]
     public void Book_WithIsbnIdentifier_EmitsIsbnBetweenPublicationDateAndPublisher()
@@ -49,34 +49,8 @@ public class FromJsonConverterBookTests
         Assert.Equal(6, bookMetadata.Elements(Crossref + "isbn").Count());
     }
 
-    private static XElement ConvertBook(string? identifiersJson)
-    {
-        var identifiers = identifiersJson is null ? "" : $""" "identifiers": {identifiersJson},""";
-
-        var json = $$"""
-            {
-              "metadata": {
-                "resource_type": { "id": "publication-book", "title": { "en": "Book" } },
-                "creators": [
-                  { "person_or_org": { "type": "personal", "given_name": "Jane", "family_name": "Doe" } }
-                ],
-                "title": "Test book",
-                "publisher": "Test Publisher",
-                "publication_date": "2026-09-22",
-                {{identifiers}}
-                "description": "Test abstract"
-              }
-            }
-            """;
-
-        var xml = FromJsonConverter.Convert(
-            new CrossrefApiClient("", "", ""),
-            json,
-            "10.15330/test.26.09.01",
-            "https://example.org/records/test");
-
-        Assert.NotNull(xml);
-
-        return XDocument.Parse(xml).Descendants(Crossref + "book_metadata").Single();
-    }
+    private static XElement ConvertBook(string? identifiersJson) =>
+        TestRecords.Convert(TestRecords.Json(identifiers: identifiersJson))
+            .Descendants(Crossref + "book_metadata")
+            .Single();
 }

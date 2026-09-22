@@ -6,34 +6,69 @@ namespace ConverterPoC;
 
 public class ContributorsParser
 {
+    // InvenioRDM contributor role id -> Crossref contributor_role. Crossref has no roles for the
+    // data-related ones (datamanager, datacollector, contactperson, ...), so those are skipped.
+    private static readonly Dictionary<string, string> CrossrefRoles = new()
+    {
+        ["editor"] = "editor",
+    };
+
     public static XElement ConvertContributorsToXml(XNamespace nameSpace, JsonElement root)
     {
         try
         {
-            JsonElement contributors = default;
-            
-            if (!root.TryGetProperty("metadata", out var metadata) || 
-                (!metadata.TryGetProperty("creators", out var creators) &&
-                !metadata.TryGetProperty("contributors", out contributors))
-                )
+            if (!root.TryGetProperty("metadata", out var metadata))
+            {
+                throw new Exception("No metadata found in the InvenioRDM JSON");
+            }
+
+            // Creators are the authors of the work regardless of their InvenioRDM role
+            var entries = new List<(JsonElement Contributor, string Role)>();
+
+            if (metadata.TryGetProperty("creators", out var creators) &&
+                creators.ValueKind == JsonValueKind.Array)
+            {
+                entries.AddRange(creators.EnumerateArray().Select(c => (c, "author")));
+            }
+
+            var skippedRoles = new List<string>();
+
+            if (metadata.TryGetProperty("contributors", out var contributors) &&
+                contributors.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var contributor in contributors.EnumerateArray())
+                {
+                    var role = contributor.TryGetProperty("role", out var roleElement) &&
+                               roleElement.TryGetProperty("id", out var roleId)
+                        ? roleId.GetString() ?? ""
+                        : "";
+
+                    if (CrossrefRoles.TryGetValue(role, out var crossrefRole))
+                        entries.Add((contributor, crossrefRole));
+                    else
+                        skippedRoles.Add(role == "" ? "(none)" : role);
+                }
+            }
+
+            if (skippedRoles.Count > 0)
+            {
+                Console.WriteLine($"Skipped {skippedRoles.Count} contributor(s) with roles that have no Crossref equivalent: " +
+                                  string.Join(", ", skippedRoles.Distinct()));
+            }
+
+            if (entries.Count == 0)
             {
                 throw new Exception("No contributors/creators found in the InvenioRDM JSON");
             }
 
             var contributorsElement = new XElement(nameSpace + "contributors");
-            
+
             var contributorCount = 0;
 
-            var contr = (contributors.ValueKind is JsonValueKind.Array)
-                ? contributors.EnumerateArray()
-                : new JsonElement.ArrayEnumerator();
-            
-            foreach (var contributor in creators.EnumerateArray().Concat(contr))
+            foreach (var (contributor, contributorType) in entries)
             {
                 contributorCount++;
                 var sequence = contributorCount == 1 ? "first" : "additional";
-
-                var contributorType = "author";
 
                 if (contributor.TryGetProperty("person_or_org", out var personOrOrg))
                 {

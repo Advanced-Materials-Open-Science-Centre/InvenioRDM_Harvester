@@ -9,6 +9,9 @@ public class Config
     public string CrossRefUser { get; set; }
     public string CrossRefPassword { get; set; }
     public string CrossRefApiUrl { get; set; }
+    public string DepositorName { get; set; }
+    public string DepositorEmail { get; set; }
+    public string Registrant { get; set; }
     public DoiMapping[] DoiMappings { get; set; } = [];
 
     public static Config Load(string filePath)
@@ -18,6 +21,16 @@ public class Config
 
         var json = File.ReadAllText(filePath);
         return JsonSerializer.Deserialize<Config>(json);
+    }
+
+    public Depositor GetDepositor()
+    {
+        if (string.IsNullOrWhiteSpace(DepositorName) ||
+            string.IsNullOrWhiteSpace(DepositorEmail) ||
+            string.IsNullOrWhiteSpace(Registrant))
+            throw new ArgumentException("Provide DepositorName, DepositorEmail and Registrant in config.json");
+
+        return new Depositor(DepositorName, DepositorEmail, Registrant);
     }
 }
 

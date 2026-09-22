@@ -4,10 +4,12 @@ using ConverterPoC;
 try
 {
     var config = Config.Load("config.json");
+    var depositor = config.GetDepositor();
 
     Console.WriteLine("Invenio RDM URL: " + config.ApiUrl);
     Console.WriteLine("CrossRef API URL: " + config.CrossRefApiUrl);
-    
+    Console.WriteLine("Depositor: " + depositor.Name + " <" + depositor.Email + ">");
+
     var instanceAddress = config.ApiUrl;
     var rdmClient = new InvenioRDMClient(instanceAddress, config.AccessToken);
     
@@ -21,7 +23,7 @@ try
     {
         var recordUrl = config.ApiUrl + "records/" + mapping.DepositoryRecordId;
         
-        await ProcessRecordAsync(mapping, rdmClient, crossrefClient, recordUrl);
+        await ProcessRecordAsync(mapping, rdmClient, crossrefClient, depositor, recordUrl);
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
 }
@@ -34,6 +36,7 @@ async Task ProcessRecordAsync(
     DoiMapping mapping, 
     InvenioRDMClient invenioRdmClient,
     CrossrefApiClient crossrefApiClient,
+    Depositor depositor,
     string recordUrl)
 {
     Console.WriteLine("*****************");
@@ -43,6 +46,7 @@ async Task ProcessRecordAsync(
     var contents = await invenioRdmClient.LoadRecordAsync(mapping.DepositoryRecordId);
 
     var converted = FromJsonConverter.Convert(crossrefApiClient,
+        depositor,
         contents ?? "",
         mapping.Doi,
         recordUrl

@@ -13,7 +13,8 @@ public static class FromJsonConverter
 {
     public static string? Convert(
         CrossrefApiClient crossrefApiClient,
-        string dataCiteJsonContents, 
+        Depositor depositor,
+        string dataCiteJsonContents,
         string doi,
         string recordUrl)
     {
@@ -22,6 +23,7 @@ public static class FromJsonConverter
             using var dataCiteDoc = JsonDocument.Parse(dataCiteJsonContents);
 
             var crossrefDoc = ConvertDataCiteToCrossref(crossrefApiClient,
+                depositor,
                 dataCiteDoc.RootElement,
                 doi,
                 recordUrl
@@ -57,7 +59,8 @@ public static class FromJsonConverter
     }
 
     private static XDocument ConvertDataCiteToCrossref(
-        CrossrefApiClient crossrefApiClient, 
+        CrossrefApiClient crossrefApiClient,
+        Depositor depositor,
         JsonElement dataCiteDoc,
         string doi,
         string recordUrl)
@@ -79,7 +82,7 @@ public static class FromJsonConverter
                 new XAttribute(xsi + "schemaLocation",
                     "http://www.crossref.org/schema/5.3.1 http://www.crossref.org/schemas/crossref5.3.1.xsd"
                 ),
-                BuildHead(ns, dataCiteDoc),
+                BuildHead(ns, depositor),
                 BuildBody(ns, dataCiteDoc, jats, crossrefApiClient, doi, recordUrl)
             )
         );
@@ -448,14 +451,14 @@ public static class FromJsonConverter
     {
         try
         {
-            if (root.TryGetProperty("description", out var abstractText))
+            if (root.TryGetProperty("description", out var description) &&
+                description.ValueKind == JsonValueKind.String)
             {
-                {
-                    var abstractElement = new XElement(jats + "abstract",
-                        new XElement(jats + "p", abstractText)
-                    );
+                var paragraphs = HtmlToJats.ToParagraphs(description.GetString(), jats);
 
-                    parentElement.Add(abstractElement);
+                if (paragraphs.Count > 0)
+                {
+                    parentElement.Add(new XElement(jats + "abstract", paragraphs));
                 }
             }
         }
@@ -535,30 +538,18 @@ public static class FromJsonConverter
         return citation;
     }
 
-    private static XElement BuildHead(XNamespace crossrefNs, JsonElement root)
+    private static XElement BuildHead(XNamespace crossrefNs, Depositor depositor)
     {
-        var publisher = "Vasyl Stefanyk Precarpathian National University";
-
-        var creators = ContributorsParser.ConvertContributorsToXml(crossrefNs, root);
-
-        var c = creators.Descendants().First();
-
-        var a = c.Nodes().ToList();
-
-        var givenName = ((XElement)a[0]).Value;
-        var surName = ((XElement)a[1]).Value;
-
-        var creatorName = $"{surName}, {givenName}";
         var batchId = GenerateBatchId();
 
         return new XElement(crossrefNs + "head",
             new XElement(crossrefNs + "doi_batch_id", batchId),
             new XElement(crossrefNs + "timestamp", DateTime.UtcNow.ToString("yyyyMMddHHmmss")), new XElement(
                 crossrefNs + "depositor",
-                new XElement(crossrefNs + "depositor_name", creatorName),
-                new XElement(crossrefNs + "email_address", givenName + "." + surName + "@pnu.edu.ua")
+                new XElement(crossrefNs + "depositor_name", depositor.Name),
+                new XElement(crossrefNs + "email_address", depositor.Email)
             ),
-            new XElement(crossrefNs + "registrant", publisher)
+            new XElement(crossrefNs + "registrant", depositor.Registrant)
         );
     }
 
