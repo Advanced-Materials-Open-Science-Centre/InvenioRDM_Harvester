@@ -11,51 +11,41 @@ namespace ConverterPoC;
 
 public static class FromJsonConverter
 {
-    public static string? Convert(
+    // Throws when the record can't be converted, so the caller can report and skip it
+    public static string Convert(
         CrossrefApiClient crossrefApiClient,
         Depositor depositor,
         string dataCiteJsonContents,
         string doi,
         string recordUrl)
     {
-        try
+        using var dataCiteDoc = JsonDocument.Parse(dataCiteJsonContents);
+
+        var crossrefDoc = ConvertDataCiteToCrossref(crossrefApiClient,
+            depositor,
+            dataCiteDoc.RootElement,
+            doi,
+            recordUrl
+        );
+
+        var sb = new StringBuilder();
+
+        using var sw = new Utf8StringWriter(sb);
+
+        var settings = new XmlWriterSettings
         {
-            using var dataCiteDoc = JsonDocument.Parse(dataCiteJsonContents);
+            Indent = true,
+            Encoding = Encoding.UTF8,
+            NewLineOnAttributes = true,
+            OmitXmlDeclaration = false
+        };
 
-            var crossrefDoc = ConvertDataCiteToCrossref(crossrefApiClient,
-                depositor,
-                dataCiteDoc.RootElement,
-                doi,
-                recordUrl
-            );
+        using var writer = XmlWriter.Create(sw, settings);
 
-            using var memoryStream = new MemoryStream();
+        crossrefDoc.WriteTo(writer);
 
-            var sb = new StringBuilder();
-
-            using var sw = new Utf8StringWriter(sb);
-
-            var settings = new XmlWriterSettings
-            {
-                Indent = true,
-                Encoding = Encoding.UTF8,
-                NewLineOnAttributes = true,
-                OmitXmlDeclaration = false
-            };
-
-            using var writer = XmlWriter.Create(sw, settings);
-
-            crossrefDoc.WriteTo(writer);
-
-            writer.Flush();
-            return sb.ToString();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error: {ex.Message}");
-        }
-
-        return null;
+        writer.Flush();
+        return sb.ToString();
     }
 
     private static XDocument ConvertDataCiteToCrossref(
@@ -100,12 +90,12 @@ public static class FromJsonConverter
         string recordUrl
     )
     {
+        // Vocabulary id (e.g. "publication-book"); the display title can be renamed or translated
         var type = root.GetProperty("metadata")
             .GetProperty("resource_type")
-            .GetProperty("title")
-            .GetProperty("en")
+            .GetProperty("id")
             .GetString() ?? "";
-        
+
         var docType = DocType(ns, root, jats, crossrefApiClient, type, doi, recordUrl);
 
         return new XElement(ns + "body",
@@ -119,10 +109,10 @@ public static class FromJsonConverter
         string? doi,
         string recordUrl)
     {
-        if (type == "Book")
+        if (type == "publication-book")
             return CreateBook(ns, root, jats, doi, recordUrl);
 
-        if (type == "Journal article")
+        if (type == "publication-article")
             return CreateJournalElement(ns, root, jats, doi, recordUrl);
         
         return CreatePresentation(ns, root, jats, crossrefApiClient, doi, recordUrl);
@@ -177,19 +167,9 @@ public static class FromJsonConverter
             }
 
             AddAbstractFromDataCite(metadata, bookMetadata, jats);
-            
-            if (metadata.TryGetProperty("publication_date", out var pubDateElement))
-            {
-                var pubDate = pubDateElement.GetString();
-                if (DateTime.TryParse(pubDate, out var parsedDate))
-                {
-                    bookMetadata.Add(new XElement(xmlns + "publication_date",
-                        new XElement(xmlns + "month", parsedDate.Month.ToString("D2")),
-                        new XElement(xmlns + "day", parsedDate.Day.ToString("D2")),
-                        new XElement(xmlns + "year", parsedDate.Year)
-                    ));
-                }
-            }
+
+            bookMetadata.Add(new XElement(xmlns + "publication_date",
+                GetPublicationDate(metadata).ToCrossref(xmlns)));
 
             AddIsbn(xmlns, bookMetadata, metadata);
 
@@ -203,18 +183,7 @@ public static class FromJsonConverter
                 ));
             }
 
-            JsonElement references;
-            if (metadata.TryGetProperty("references", out references) && references.ValueKind == JsonValueKind.Array)
-            {
-                var citationList = new XElement(xmlns + "citation_list");
-                bookMetadata.Add(citationList);
-
-                foreach (var reference in references.EnumerateArray())
-                {
-                    var citation = ProcessCitation(xmlns, reference);
-                    citationList.Add(citation);
-                }
-            }
+            AddCitationList(xmlns, bookMetadata, metadata);
         }
 
         bookElement.Add(bookMetadata);
@@ -314,21 +283,11 @@ public static class FromJsonConverter
                 ));
             }
             
-            if (metadata.TryGetProperty("publication_date", out var pubDateElement))
-            {
-                var pubDate = pubDateElement.GetString();
-                if (DateTime.TryParse(pubDate, out var parsedDate))
-                {
-                    postedContent.Add(new XElement(xmlns + "posted_date",
-                        new XElement(xmlns + "month", parsedDate.Month.ToString("D2")),
-                        new XElement(xmlns + "day", parsedDate.Day.ToString("D2")),
-                        new XElement(xmlns + "year", parsedDate.Year)
-                    ));
-                }
-            }
+            postedContent.Add(new XElement(xmlns + "posted_date",
+                GetPublicationDate(metadata).ToCrossref(xmlns)));
 
             AddAbstractFromDataCite(metadata, postedContent, jats);
-            
+
             if (!string.IsNullOrEmpty(doi))
             {
                 postedContent.Add(new XElement(xmlns + "doi_data",
@@ -337,18 +296,7 @@ public static class FromJsonConverter
                 ));
             }
 
-            JsonElement references;
-            if (metadata.TryGetProperty("references", out references) && references.ValueKind == JsonValueKind.Array)
-            {
-                var citationList = new XElement(xmlns + "citation_list");
-                postedContent.Add(citationList);
-
-                foreach (var reference in references.EnumerateArray())
-                {
-                    var citation = ProcessCitation(xmlns, reference);
-                    citationList.Add(citation);
-                }
-            }
+            AddCitationList(xmlns, postedContent, metadata);
         }
         
         return postedContent;
@@ -393,18 +341,10 @@ public static class FromJsonConverter
 
             AddAbstractFromDataCite(metadata, journalArticle, jats);
 
-            if (metadata.TryGetProperty("publication_date", out var pubDateElement))
-            {
-                var pubDate = pubDateElement.GetString();
-                if (DateTime.TryParse(pubDate, out var parsedDate))
-                {
-                    journalArticle.Add(new XElement(xmlns + "publication_date",
-                        new XElement(xmlns + "month", parsedDate.Month.ToString("D2")),
-                        new XElement(xmlns + "day", parsedDate.Day.ToString("D2")),
-                        new XElement(xmlns + "year", parsedDate.Year)
-                    ));
-                }
-            }
+            var publicationDate = GetPublicationDate(metadata);
+
+            journalArticle.Add(new XElement(xmlns + "publication_date",
+                publicationDate.ToCrossref(xmlns)));
 
             if (!string.IsNullOrEmpty(doi))
             {
@@ -414,30 +354,11 @@ public static class FromJsonConverter
                 ));
             }
 
-            JsonElement references;
-            if (metadata.TryGetProperty("references", out references) && references.ValueKind == JsonValueKind.Array)
-            {
-                var citationList = new XElement(xmlns + "citation_list");
-                journalArticle.Add(citationList);
+            AddCitationList(xmlns, journalArticle, metadata);
 
-                foreach (var reference in references.EnumerateArray())
-                {
-                    var citation = ProcessCitation(xmlns, reference);
-                    citationList.Add(citation);
-                }
-            }
-        }
-
-        if (metadata.TryGetProperty("publication_date", out var pubDateE))
-        {
-            var pubDate = pubDateE.GetString();
-
-            if (DateTime.TryParse(pubDate, out var parsedDate))
-            {
-                journalIssue.Add(new XElement(xmlns + "publication_date",
-                    new XElement(xmlns + "year", parsedDate.Year)
-                ));
-            }
+            journalIssue.Add(new XElement(xmlns + "publication_date",
+                new XElement(xmlns + "year", publicationDate.Year)
+            ));
         }
 
         journal.Add(journalMetadata);
@@ -468,10 +389,35 @@ public static class FromJsonConverter
         }
     }
 
-    private static XElement ProcessCitation(XNamespace xmlns, JsonElement reference)
+    // publication_date/posted_date are required by Crossref, so a record without a usable date fails
+    private static EdtfDate GetPublicationDate(JsonElement metadata)
     {
-        var key = "ref-" + Guid.NewGuid().ToString("N").Substring(0, 3);
+        var value = metadata.TryGetProperty("publication_date", out var element) &&
+                    element.ValueKind == JsonValueKind.String
+            ? element.GetString()
+            : null;
 
+        return EdtfDate.Parse(value) ??
+               throw new InvalidOperationException($"Record has no valid EDTF publication_date: '{value}'");
+    }
+
+    private static void AddCitationList(XNamespace xmlns, XElement parentElement, JsonElement metadata)
+    {
+        if (!metadata.TryGetProperty("references", out var references) ||
+            references.ValueKind != JsonValueKind.Array)
+            return;
+
+        // Keys must be unique within the citation_list
+        var citations = references.EnumerateArray()
+            .Select((reference, index) => ProcessCitation(xmlns, reference, $"ref-{index + 1}"))
+            .ToList();
+
+        if (citations.Count > 0)
+            parentElement.Add(new XElement(xmlns + "citation_list", citations));
+    }
+
+    private static XElement ProcessCitation(XNamespace xmlns, JsonElement reference, string key)
+    {
         if (reference.TryGetProperty("reference", out var refValue))
         {
             var value = refValue.GetString();

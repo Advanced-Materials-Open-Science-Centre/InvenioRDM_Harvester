@@ -1,6 +1,8 @@
 ﻿using System.Text.Json;
 using ConverterPoC;
 
+var failed = new List<string>();
+
 try
 {
     var config = Config.Load("config.json");
@@ -19,18 +21,37 @@ try
         apiUrl: config.CrossRefApiUrl
     );
 
-    foreach (var mapping in config.DoiMappings ?? [])
+    var mappings = config.DoiMappings ?? [];
+
+    foreach (var mapping in mappings)
     {
         var recordUrl = config.ApiUrl + "records/" + mapping.DepositoryRecordId;
-        
-        await ProcessRecordAsync(mapping, rdmClient, crossrefClient, depositor, recordUrl);
+
+        try
+        {
+            await ProcessRecordAsync(mapping, rdmClient, crossrefClient, depositor, recordUrl);
+        }
+        catch (Exception ex)
+        {
+            // One bad record shouldn't block the rest of the batch
+            Console.WriteLine($"Record {mapping.DepositoryRecordId} failed: {ex.Message}");
+            failed.Add(mapping.DepositoryRecordId);
+        }
+
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
+
+    Console.WriteLine("*****************");
+    Console.WriteLine($"Submitted {mappings.Length - failed.Count} of {mappings.Length} record(s)" +
+                      (failed.Count > 0 ? "; failed: " + string.Join(", ", failed) : ""));
 }
 catch (Exception ex)
 {
     Console.WriteLine("Exception: " + ex.Message);
+    return 1;
 }
+
+return failed.Count == 0 ? 0 : 1;
 
 async Task ProcessRecordAsync(
     DoiMapping mapping, 
@@ -43,11 +64,12 @@ async Task ProcessRecordAsync(
     Console.WriteLine("Record ID: " + mapping.DepositoryRecordId);
     Console.WriteLine("DOI: " + mapping.Doi);
             
-    var contents = await invenioRdmClient.LoadRecordAsync(mapping.DepositoryRecordId);
+    var contents = await invenioRdmClient.LoadRecordAsync(mapping.DepositoryRecordId)
+                   ?? throw new InvalidOperationException("Could not load the record from InvenioRDM");
 
     var converted = FromJsonConverter.Convert(crossrefApiClient,
         depositor,
-        contents ?? "",
+        contents,
         mapping.Doi,
         recordUrl
     );
