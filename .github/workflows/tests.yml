@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
 
     steps:
@@ -26,4 +27,20 @@ jobs:
         run: dotnet build src/ConverterPoC.sln --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test src/ConverterPoC.sln --no-build --configuration Release --logger "console;verbosity=normal"
+        run: dotnet test src/ConverterPoC.sln --no-build --configuration Release --filter "Category!=Integration" --logger "console;verbosity=normal"
+
+  # Fetches real records from dataset.cnu.edu.ua and validates the converted XML with Crossref's
+  # schema parser (validation only, nothing is deposited), so it depends on both services being up
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Test
+        run: dotnet test src/ConverterPoC.Tests --configuration Release --filter "Category=Integration" --logger "console;verbosity=normal"
