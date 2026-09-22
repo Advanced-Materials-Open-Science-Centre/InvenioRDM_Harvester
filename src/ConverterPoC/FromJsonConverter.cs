@@ -188,6 +188,8 @@ public static class FromJsonConverter
                 }
             }
 
+            AddIsbn(xmlns, bookMetadata, metadata);
+
             AddPublisher(xmlns, bookMetadata, metadata);
 
             if (!string.IsNullOrEmpty(doi))
@@ -214,6 +216,50 @@ public static class FromJsonConverter
 
         bookElement.Add(bookMetadata);
     }
+
+    // Crossref book_metadata requires either up to 6 <isbn> elements or a single <noisbn>
+    private static void AddIsbn(XNamespace xmlns, XElement bookMetadata, JsonElement metadata)
+    {
+        var isbns = new List<string>();
+
+        if (metadata.TryGetProperty("identifiers", out var identifiers) &&
+            identifiers.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var identifier in identifiers.EnumerateArray())
+            {
+                if (identifier.TryGetProperty("scheme", out var scheme) &&
+                    scheme.GetString() == "isbn" &&
+                    identifier.TryGetProperty("identifier", out var value))
+                {
+                    var isbn = value.GetString()?.Trim();
+
+                    if (IsCrossrefIsbn(isbn))
+                        isbns.Add(isbn!);
+                    else
+                        Console.WriteLine($"Skipping ISBN not accepted by Crossref schema: {isbn}");
+                }
+            }
+        }
+
+        if (isbns.Count == 0)
+        {
+            bookMetadata.Add(new XElement(xmlns + "noisbn",
+                new XAttribute("reason", "monograph")));
+            return;
+        }
+
+        foreach (var isbn in isbns.Distinct().Take(6))
+        {
+            bookMetadata.Add(new XElement(xmlns + "isbn",
+                new XAttribute("media_type", "print"), isbn));
+        }
+    }
+
+    // Mirrors isbn_t from common5.3.1.xsd
+    private static bool IsCrossrefIsbn(string? isbn) =>
+        !string.IsNullOrEmpty(isbn) &&
+        isbn.Length is >= 10 and <= 17 &&
+        Regex.IsMatch(isbn, @"^(97[89]-)?[0-9][0-9 \-]+[0-9X]$");
 
     private static void AddPublisher(XNamespace xmlns, XElement bookMetadata, JsonElement metadata)
     {

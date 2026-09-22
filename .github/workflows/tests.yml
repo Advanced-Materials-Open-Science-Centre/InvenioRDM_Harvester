@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # ConverterPoC and its tests target net9.0, Updater.Console targets net10.0
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore src/ConverterPoC.sln
+
+      - name: Build
+        run: dotnet build src/ConverterPoC.sln --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test src/ConverterPoC.sln --no-build --configuration Release --filter "Category!=Integration" --logger "console;verbosity=normal"
+
+  # Fetches real records from dataset.cnu.edu.ua and validates the converted XML with Crossref's
+  # schema parser (validation only, nothing is deposited), so it depends on both services being up
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Test
+        run: dotnet test src/ConverterPoC.Tests --configuration Release --filter "Category=Integration" --logger "console;verbosity=normal"
