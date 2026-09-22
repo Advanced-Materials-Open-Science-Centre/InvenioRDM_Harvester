@@ -1,13 +1,17 @@
-﻿{
-  "ApiUrl": "zzz",
-  "AccessToken": "yyy",
-  "CrossRefUser": "aaa",
-  "CrossRefPassword": "bbb",
-  "CrossRefApiUrl": "ccc",
-  "DoiMappings":[
+{
+  "ApiUrl": "https://dataset.cnu.edu.ua/",
+  "AccessToken": "",
+  "CrossRefUser": "",
+  "CrossRefPassword": "",
+  "CrossRefApiUrl": "https://test.crossref.org/servlet/deposit",
+  "DepositorName": "",
+  "DepositorEmail": "",
+  "Registrant": "",
+  "ResultTimeoutMinutes": 5,
+  "DoiMappings": [
     {
-      "Doi":"doi",
-      "DepositoryRecordId":"id"
+      "Doi": "10.xxxxx/example",
+      "DepositoryRecordId": "abcde-12345"
     }
   ]
 }

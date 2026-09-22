@@ -11,6 +11,14 @@
       <None Update="config.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
+      <None Update="config.local.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
+    <!-- Offline copy of https://www.crossref.org/schemas/ used to validate deposits before upload -->
+    <ItemGroup>
+      <EmbeddedResource Include="Schemas\**\*.xsd" LogicalName="Schemas/%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>
 
     <ItemGroup>

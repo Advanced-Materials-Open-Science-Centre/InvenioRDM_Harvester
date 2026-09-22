@@ -13,7 +13,6 @@ public static class FromJsonConverter
 {
     // Throws when the record can't be converted, so the caller can report and skip it
     public static string Convert(
-        CrossrefApiClient crossrefApiClient,
         Depositor depositor,
         string dataCiteJsonContents,
         string doi,
@@ -21,7 +20,7 @@ public static class FromJsonConverter
     {
         using var dataCiteDoc = JsonDocument.Parse(dataCiteJsonContents);
 
-        var crossrefDoc = ConvertDataCiteToCrossref(crossrefApiClient,
+        var crossrefDoc = ConvertDataCiteToCrossref(
             depositor,
             dataCiteDoc.RootElement,
             doi,
@@ -49,7 +48,6 @@ public static class FromJsonConverter
     }
 
     private static XDocument ConvertDataCiteToCrossref(
-        CrossrefApiClient crossrefApiClient,
         Depositor depositor,
         JsonElement dataCiteDoc,
         string doi,
@@ -73,7 +71,7 @@ public static class FromJsonConverter
                     "http://www.crossref.org/schema/5.3.1 http://www.crossref.org/schemas/crossref5.3.1.xsd"
                 ),
                 BuildHead(ns, depositor),
-                BuildBody(ns, dataCiteDoc, jats, crossrefApiClient, doi, recordUrl)
+                BuildBody(ns, dataCiteDoc, jats, doi, recordUrl)
             )
         );
 
@@ -85,7 +83,6 @@ public static class FromJsonConverter
         XNamespace ns, 
         JsonElement root, 
         XNamespace jats,
-        CrossrefApiClient crossrefApiClient,
         string doi,
         string recordUrl
     )
@@ -96,16 +93,15 @@ public static class FromJsonConverter
             .GetProperty("id")
             .GetString() ?? "";
 
-        var docType = DocType(ns, root, jats, crossrefApiClient, type, doi, recordUrl);
+        var docType = DocType(ns, root, jats, type, doi, recordUrl);
 
         return new XElement(ns + "body",
             docType
         );
     }
 
-    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats, 
-        CrossrefApiClient crossrefApiClient, 
-        string type, 
+    private static XElement DocType(XNamespace ns, JsonElement root, XNamespace jats,
+        string type,
         string? doi,
         string recordUrl)
     {
@@ -115,7 +111,7 @@ public static class FromJsonConverter
         if (type == "publication-article")
             return CreateJournalElement(ns, root, jats, doi, recordUrl);
         
-        return CreatePresentation(ns, root, jats, crossrefApiClient, doi, recordUrl);
+        return CreatePresentation(ns, root, jats, doi, recordUrl);
     }
     
     private static XElement CreateBook(
@@ -245,7 +241,7 @@ public static class FromJsonConverter
     }
     
     private static XElement CreatePresentation(XNamespace xmlns, JsonElement root, XNamespace jats,
-        CrossrefApiClient crossrefApiClient, string? doi, string recordUrl)
+        string? doi, string recordUrl)
     {
         var postedContent = new XElement(xmlns + "posted_content",
             new XAttribute("type", "report")
@@ -253,17 +249,6 @@ public static class FromJsonConverter
 
         if (root.TryGetProperty("metadata", out var metadata))
         {
-            if (doi != null)
-            {
-                var re = crossrefApiClient.DoiExistsAsync(doi).Result;
-
-                if (re != null)
-                {
-                    Console.WriteLine($"Already published: Doi: {doi}");
-                    Console.WriteLine($"Doi: {doi}");
-                }
-            }
-
             if (metadata.TryGetProperty("creators", out var creatorsElement) &&
                 creatorsElement.ValueKind == JsonValueKind.Array)
             {

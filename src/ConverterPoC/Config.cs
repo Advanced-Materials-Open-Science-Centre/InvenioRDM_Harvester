@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ConverterPoC;
 
@@ -12,16 +13,34 @@ public class Config
     public string DepositorName { get; set; }
     public string DepositorEmail { get; set; }
     public string Registrant { get; set; }
+    // How long to wait for Crossref to process the deposits; 0 skips waiting
+    public int ResultTimeoutMinutes { get; set; } = 5;
     public DoiMapping[] DoiMappings { get; set; } = [];
 
+    // Settings from config.local.json (next to config.json, not tracked by git) override
+    // config.json, so credentials and DOI mappings stay out of the repository
     public static Config Load(string filePath)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException("Configuration file not found.", filePath);
 
-        var json = File.ReadAllText(filePath);
-        return JsonSerializer.Deserialize<Config>(json);
+        var settings = JsonNode.Parse(File.ReadAllText(filePath))!.AsObject();
+
+        var localPath = GetLocalPath(filePath);
+
+        if (File.Exists(localPath))
+        {
+            foreach (var (name, value) in JsonNode.Parse(File.ReadAllText(localPath))!.AsObject())
+                settings[name] = value?.DeepClone();
+        }
+
+        return settings.Deserialize<Config>()!;
     }
+
+    public static string GetLocalPath(string filePath) =>
+        Path.Combine(
+            Path.GetDirectoryName(filePath) ?? "",
+            Path.GetFileNameWithoutExtension(filePath) + ".local" + Path.GetExtension(filePath));
 
     public Depositor GetDepositor()
     {
