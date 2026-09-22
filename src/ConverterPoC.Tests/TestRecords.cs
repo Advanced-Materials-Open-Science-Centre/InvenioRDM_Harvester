@@ -57,7 +57,6 @@ internal static class TestRecords
     public static XDocument Convert(string json)
     {
         var xml = FromJsonConverter.Convert(
-            new CrossrefApiClient("", "", ""),
             Depositor,
             json,
             "10.15330/test.26.09.01",

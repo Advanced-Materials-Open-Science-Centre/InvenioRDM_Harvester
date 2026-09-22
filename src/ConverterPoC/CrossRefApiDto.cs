@@ -45,6 +45,22 @@ public class CrossrefWork
     
     [JsonPropertyName("ISBN")]
     public List<string> Isbn { get; set; }
+
+    [JsonPropertyName("resource")]
+    public CrossrefResource? Resource { get; set; }
+}
+
+public class CrossrefResource
+{
+    [JsonPropertyName("primary")]
+    public CrossrefResourceLink? Primary { get; set; }
+}
+
+public class CrossrefResourceLink
+{
+    // The URL the DOI resolves to
+    [JsonPropertyName("URL")]
+    public string? Url { get; set; }
 }
 
 public class CrossrefAuthor

@@ -51,6 +51,9 @@ public class CrossrefParserIntegrationTests
         var result = await ValidateWithCrossrefParserAsync($"{recordId}.xml", xml);
 
         Assert.True(result.IsValid, $"Crossref parser rejected {recordId}: {result}");
+
+        // The bundled schema used before deposits must agree with Crossref's parser
+        Assert.Empty(CrossrefSchema.Validate(xml));
     }
 
     // Guards against the check above passing vacuously: the pre-fix output must be rejected
@@ -64,6 +67,7 @@ public class CrossrefParserIntegrationTests
 
         Assert.False(result.IsValid, $"Expected Crossref parser to reject XML without isbn/noisbn: {result}");
         Assert.Contains(result.Errors, e => e.Contains("noisbn"));
+        Assert.Contains(CrossrefSchema.Validate(doc.ToString()), e => e.Contains("noisbn"));
     }
 
     private static async Task<string> ConvertRealRecordAsync(string recordId)
@@ -71,7 +75,6 @@ public class CrossrefParserIntegrationTests
         var json = await Http.GetStringAsync($"{RepositoryUrl}api/records/{recordId}");
 
         var xml = FromJsonConverter.Convert(
-            new CrossrefApiClient("", "", ""),
             TestRecords.Depositor,
             json,
             TestDoi,

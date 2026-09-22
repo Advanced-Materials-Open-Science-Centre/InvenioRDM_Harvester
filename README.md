@@ -27,18 +27,22 @@ The automated transfer process involves the following key stages:
 
 ### Configuration
 
-The application is configured through a `config.json` file, which must reside in the same directory as the application executable. The configuration file adheres to the following JSON structure:
+The application reads `config.json` from its working directory. `config.json` is tracked by git and only holds defaults, so put credentials and the records to deposit in `config.local.json` next to it: it is ignored by git, copied to the build output, and any setting in it overrides `config.json`.
 
 ```json
 {
-  "ApiUrl": "https://dataset.pnu.edu.ua/",
+  "ApiUrl": "https://dataset.cnu.edu.ua/",
   "AccessToken": "",
   "CrossRefUser": "",
   "CrossRefPassword": "",
   "CrossRefApiUrl": "https://test.crossref.org/servlet/deposit",
   "DepositorName": "",
   "DepositorEmail": "",
-  "Registrant": ""
+  "Registrant": "",
+  "ResultTimeoutMinutes": 5,
+  "DoiMappings": [
+    { "Doi": "10.xxxxx/example", "DepositoryRecordId": "abcde-12345" }
+  ]
 }
 ```
 
@@ -46,16 +50,25 @@ The application is configured through a `config.json` file, which must reside in
 - `AccessToken` - Personal access token generated in Invenio RDM user's cabinet
 - `CrossRefUser` - CrossReference account username
 - `CrossRefPassword` - CrossReference account password
-- `CrossRefApiUrl` - CrossReference XML submission endpoint. 
+- `CrossRefApiUrl` - CrossReference XML submission endpoint (`https://doi.crossref.org/servlet/deposit` for production)
 - `DepositorName` - Name of the organization or person submitting the deposit
 - `DepositorEmail` - E-mail address CrossRef sends deposit success and error reports to
 - `Registrant` - Organization that owns the registered content
+- `ResultTimeoutMinutes` - How long to wait for CrossRef to process the deposits (`0` to skip waiting)
+- `DoiMappings` - The DOI to register for each Invenio RDM record id
 
 
 ### Run
 
-Provide one or more IDs of the publications from Invenio RDM site in order to start conversion process:
-
 ```bash
-.\ConverterPoC.exe hae0c-y5202 dsvcx-mc604
+.\ConverterPoC.exe
 ```
+
+For each entry in `DoiMappings` the tool:
+
+1. Loads the record from Invenio RDM and saves it as `<record id>.json`.
+2. Checks the DOI: the record must not already list a different DOI under the same prefix, and the DOI must not be registered in CrossRef for another record. DOIs from other prefixes (e.g. Zenodo) only produce a warning.
+3. Converts the record to `<record id>.xml` and validates it against the bundled CrossRef 5.3.1 schema (`src/ConverterPoC/Schemas`).
+4. Uploads it to CrossRef under a unique file name.
+
+A record that fails any step is reported and skipped. The tool then waits up to `ResultTimeoutMinutes` for CrossRef's deposit results, prints them, and exits with code `1` if any record failed.
