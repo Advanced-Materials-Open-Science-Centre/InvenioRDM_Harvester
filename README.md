@@ -35,7 +35,10 @@ The application is configured through a `config.json` file, which must reside in
   "AccessToken": "",
   "CrossRefUser": "",
   "CrossRefPassword": "",
-  "CrossRefApiUrl": "https://test.crossref.org/servlet/deposit"
+  "CrossRefApiUrl": "https://test.crossref.org/servlet/deposit",
+  "DepositorName": "",
+  "DepositorEmail": "",
+  "Registrant": ""
 }
 ```
 
@@ -44,6 +47,9 @@ The application is configured through a `config.json` file, which must reside in
 - `CrossRefUser` - CrossReference account username
 - `CrossRefPassword` - CrossReference account password
 - `CrossRefApiUrl` - CrossReference XML submission endpoint. 
+- `DepositorName` - Name of the organization or person submitting the deposit
+- `DepositorEmail` - E-mail address CrossRef sends deposit success and error reports to
+- `Registrant` - Organization that owns the registered content
 
 
 ### Run
