@@ -17,14 +17,10 @@ public class InvenioRDMClient
 
     readonly HttpClient _client;
 
+    // Always fetches the current record: a local copy would go stale after edits in InvenioRDM
     public async Task<string?> LoadRecordAsync(string recordId)
     {
-        if(File.Exists(recordId))
-           return await File.ReadAllTextAsync(recordId);
-        
-        var load = await LoadRecordInternalAsync(recordId);
-        await File.WriteAllTextAsync(recordId, load);
-        return load;
+        return await LoadRecordInternalAsync(recordId);
     }
 
     private async Task<string?> LoadRecordInternalAsync(string recordId)

@@ -43,6 +43,7 @@ public class CrossrefParserIntegrationTests
     [InlineData("6tdhm-d7z68")] // Book without an ISBN identifier
     [InlineData("mztvt-77b28")] // Dataset with an organization as first creator
     [InlineData("ctk9d-c6s53")] // Other, with an editor contributor
+    [InlineData("tks6t-8t124")] // Journal article with a year-only publication date
     public async Task RealRecord_ConvertedXml_PassesCrossrefParser(string recordId)
     {
         var xml = await ConvertRealRecordAsync(recordId);

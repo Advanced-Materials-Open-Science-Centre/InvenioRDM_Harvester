@@ -14,13 +14,15 @@ internal static class TestRecords
     public const string PersonCreator =
         """[{ "person_or_org": { "type": "personal", "given_name": "Jane", "family_name": "Doe" } }]""";
 
-    // Minimal InvenioRDM record; creators, contributors and identifiers are raw JSON arrays
+    // Minimal InvenioRDM record; creators, contributors, identifiers and references are raw JSON arrays
     public static string Json(
-        string resourceType = "Book",
+        string resourceType = "publication-book",
         string creators = PersonCreator,
         string? contributors = null,
         string? identifiers = null,
-        string? description = "Test abstract")
+        string? references = null,
+        string? description = "Test abstract",
+        string? publicationDate = "2026-09-22")
     {
         var optional = new StringBuilder();
 
@@ -30,18 +32,23 @@ internal static class TestRecords
         if (identifiers != null)
             optional.Append($""" "identifiers": {identifiers},""");
 
+        if (references != null)
+            optional.Append($""" "references": {references},""");
+
         if (description != null)
             optional.Append($""" "description": {JsonSerializer.Serialize(description)},""");
+
+        if (publicationDate != null)
+            optional.Append($""" "publication_date": {JsonSerializer.Serialize(publicationDate)},""");
 
         return $$"""
             {
               "metadata": {
-                "resource_type": { "id": "test", "title": { "en": "{{resourceType}}" } },
+                "resource_type": { "id": "{{resourceType}}", "title": { "en": "Test type" } },
                 "creators": {{creators}},
                 {{optional}}
                 "title": "Test record",
-                "publisher": "Test Publisher",
-                "publication_date": "2026-09-22"
+                "publisher": "Test Publisher"
               }
             }
             """;

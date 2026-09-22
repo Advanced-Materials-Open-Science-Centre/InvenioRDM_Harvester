@@ -24,15 +24,15 @@ public class FromJsonConverterTests
     [InlineData("""[{ "person_or_org": { "type": "personal", "given_name": "Олена", "family_name": "Коваль" } }]""")]
     public void Head_DoesNotDependOnCreators(string creators)
     {
-        var doc = TestRecords.Convert(TestRecords.Json(resourceType: "Dataset", creators: creators));
+        var doc = TestRecords.Convert(TestRecords.Json(resourceType: "dataset", creators: creators));
 
         Assert.Equal("depositor@example.org", doc.Descendants(Crossref + "email_address").Single().Value);
     }
 
     [Theory]
-    [InlineData("Book", "book_metadata")]
-    [InlineData("Journal article", "journal_article")]
-    [InlineData("Dataset", "posted_content")]
+    [InlineData("publication-book", "book_metadata")]
+    [InlineData("publication-article", "journal_article")]
+    [InlineData("dataset", "posted_content")]
     public void Abstract_HtmlDescription_IsConvertedToJatsParagraphs(string resourceType, string parent)
     {
         var json = TestRecords.Json(
@@ -58,5 +58,84 @@ public class FromJsonConverterTests
         var doc = TestRecords.Convert(TestRecords.Json(description: description));
 
         Assert.Empty(doc.Descendants(Jats + "abstract"));
+    }
+
+    // DateTime.TryParse used to drop year-only dates (leaving out a required element) and invent days
+    [Theory]
+    [InlineData("publication-book", "2025", "2025")]
+    [InlineData("publication-article", "2025", "2025")]
+    [InlineData("dataset", "2025", "2025")]
+    [InlineData("dataset", "2026-09", "09 2026")]
+    [InlineData("dataset", "2026-09-22", "09 22 2026")]
+    [InlineData("dataset", "2020-05-01/2021", "05 01 2020")]
+    public void PublicationDate_KeepsEdtfPrecision(string resourceType, string publicationDate, string expected)
+    {
+        var doc = TestRecords.Convert(TestRecords.Json(resourceType: resourceType, publicationDate: publicationDate));
+
+        var date = doc.Descendants()
+            .Single(e => e.Name.LocalName is "publication_date" or "posted_date" &&
+                         e.Parent!.Name.LocalName != "journal_issue");
+
+        Assert.Equal(expected, string.Join(" ", date.Elements().Select(e => e.Value)));
+    }
+
+    [Fact]
+    public void JournalIssueDate_IsYear()
+    {
+        var doc = TestRecords.Convert(TestRecords.Json(resourceType: "publication-article"));
+
+        var issueDate = doc.Descendants(Crossref + "journal_issue").Single().Element(Crossref + "publication_date")!;
+
+        Assert.Equal(["year"], issueDate.Elements().Select(e => e.Name.LocalName));
+        Assert.Equal("2026", issueDate.Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("22.09.2026")]
+    [InlineData("2026-02-30")]
+    public void PublicationDate_MissingOrInvalid_Throws(string? publicationDate)
+    {
+        var json = TestRecords.Json(resourceType: "dataset", publicationDate: publicationDate);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => TestRecords.Convert(json));
+
+        Assert.Contains("publication_date", exception.Message);
+    }
+
+    // Selected by resource_type.id; TestRecords gives every type the same display title
+    [Theory]
+    [InlineData("publication-book", "book")]
+    [InlineData("publication-article", "journal")]
+    [InlineData("dataset", "posted_content")]
+    [InlineData("presentation", "posted_content")]
+    [InlineData("publication-conferencepaper", "posted_content")]
+    public void ResourceTypeId_SelectsCrossrefContentType(string resourceType, string expected)
+    {
+        var body = TestRecords.Convert(TestRecords.Json(resourceType: resourceType)).Descendants(Crossref + "body").Single();
+
+        Assert.Equal(expected, Assert.Single(body.Elements()).Name.LocalName);
+    }
+
+    // Keys used to be 3 random hex characters, which collide within larger reference lists
+    [Fact]
+    public void Citations_HaveUniqueSequentialKeys()
+    {
+        var references = "[" + string.Join(",", Enumerable.Range(1, 30).Select(i => $$"""{ "reference": "Reference {{i}}" }""")) + "]";
+
+        var citations = TestRecords.Convert(TestRecords.Json(references: references))
+            .Descendants(Crossref + "citation")
+            .ToList();
+
+        Assert.Equal(Enumerable.Range(1, 30).Select(i => $"ref-{i}"), citations.Select(c => c.Attribute("key")!.Value));
+        Assert.Equal("Reference 30", citations[^1].Element(Crossref + "unstructured_citation")!.Value);
+    }
+
+    [Fact]
+    public void Citations_EmptyReferences_OmitsCitationList()
+    {
+        var doc = TestRecords.Convert(TestRecords.Json(references: "[]"));
+
+        Assert.Empty(doc.Descendants(Crossref + "citation_list"));
     }
 }
