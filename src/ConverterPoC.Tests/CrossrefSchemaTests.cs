@@ -29,6 +29,15 @@ public class CrossrefSchemaTests
         Assert.Empty(CrossrefSchema.Validate(TestRecords.Convert(json, registeredType).ToString()));
     }
 
+    [Fact]
+    public void SchemaFiles_AreCachedLocally()
+    {
+        CrossrefSchema.Validate(TestRecords.Convert(TestRecords.Json()).ToString());
+
+        Assert.True(File.Exists(Path.Combine(CrossrefSchema.CacheDirectory, "crossref5.3.1.xsd")));
+        Assert.True(File.Exists(Path.Combine(CrossrefSchema.CacheDirectory, "standard-modules", "mathml3", "mathml3.xsd")));
+    }
+
     // Journal article whose publisher is the repository itself, deposited as posted content
     [Fact]
     public void JournalArticleWithoutJournal_IsValid()

@@ -16,9 +16,4 @@
       </None>
     </ItemGroup>
 
-    <!-- Offline copy of https://www.crossref.org/schemas/ used to validate deposits before upload -->
-    <ItemGroup>
-      <EmbeddedResource Include="Schemas\**\*.xsd" LogicalName="Schemas/%(RecursiveDir)%(Filename)%(Extension)" />
-    </ItemGroup>
-
 </Project>
