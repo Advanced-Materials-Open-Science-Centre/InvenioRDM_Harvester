@@ -5,14 +5,15 @@ namespace ConverterPoC;
 
 public class Config
 {
-    public string ApiUrl { get; set; }
-    public string AccessToken { get; set; }
-    public string CrossRefUser { get; set; }
-    public string CrossRefPassword { get; set; }
-    public string CrossRefApiUrl { get; set; }
-    public string DepositorName { get; set; }
-    public string DepositorEmail { get; set; }
-    public string Registrant { get; set; }
+    public string ApiUrl { get; set; } = "";
+    public string AccessToken { get; set; } = "";
+    public string CrossRefUser { get; set; } = "";
+    public string CrossRefPassword { get; set; } = "";
+    public string CrossRefApiUrl { get; set; } = "";
+    public string DepositorName { get; set; } = "";
+    public string DepositorEmail { get; set; } = "";
+    public string Registrant { get; set; } = "";
+    public string RepositoryName { get; set; } = "";
     // How long to wait for Crossref to process the deposits; 0 skips waiting
     public int ResultTimeoutMinutes { get; set; } = 5;
     public DoiMapping[] DoiMappings { get; set; } = [];
@@ -51,10 +52,20 @@ public class Config
 
         return new Depositor(DepositorName, DepositorEmail, Registrant);
     }
+
+    public ConversionSettings GetConversionSettings()
+    {
+        var depositor = GetDepositor();
+
+        if (string.IsNullOrWhiteSpace(RepositoryName))
+            throw new ArgumentException("Provide RepositoryName in config.json");
+
+        return new ConversionSettings(depositor, RepositoryName);
+    }
 }
 
 public class DoiMapping
 {
-    public string Doi { get; set; }
-    public string DepositoryRecordId { get; set; }
+    public string Doi { get; set; } = "";
+    public string DepositoryRecordId { get; set; } = "";
 }

@@ -1,56 +1,36 @@
-﻿using System.Text;
+using System.Net.Http.Headers;
+using System.Text;
 
 namespace ConverterPoC;
 
 public class InvenioRDMClient
 {
     private readonly string _apiUrl;
+    private readonly HttpClient _client;
 
-    public InvenioRDMClient(string apiUrl, string token)
+    public InvenioRDMClient(string apiUrl, string? token)
     {
         _apiUrl = apiUrl;
         _client = new HttpClient();
 
-        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        _client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-    }
+        // Public records can be read anonymously
+        if (!string.IsNullOrEmpty(token))
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-    readonly HttpClient _client;
+        _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    }
 
     // Always fetches the current record: a local copy would go stale after edits in InvenioRDM
     public async Task<string?> LoadRecordAsync(string recordId)
     {
-        return await LoadRecordInternalAsync(recordId);
-    }
+        using var response = await _client.GetAsync($"{_apiUrl}api/records/{recordId}");
 
-    private async Task<string?> LoadRecordInternalAsync(string recordId)
-    {
-        var apiUrl = $"{_apiUrl}api/records/{recordId}";
-        
-        var response = await _client.GetAsync(apiUrl);
-        
-        if (response.IsSuccessStatusCode)
-        {
-            var a = await response.Content.ReadAsByteArrayAsync();
-            var txt = Encoding.UTF8.GetString(a)
-                .Replace("\r\n", "\n")
-                .Replace("\n", "\r\n");
-            return txt;
-        }
-        else
+        if (!response.IsSuccessStatusCode)
         {
             Console.WriteLine($"Error: {response.StatusCode} - {await response.Content.ReadAsStringAsync()}");
             return null;
         }
-    }
 
-    public async Task<byte[]?> GetAsync(string pdfLink)
-    {
-        var response = await _client.GetAsync(pdfLink);
-
-        if (response.IsSuccessStatusCode)
-            return await response.Content.ReadAsByteArrayAsync();
-
-        return null;
+        return Encoding.UTF8.GetString(await response.Content.ReadAsByteArrayAsync());
     }
 }

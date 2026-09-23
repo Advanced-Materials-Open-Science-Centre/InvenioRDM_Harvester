@@ -12,7 +12,7 @@ The automated transfer process involves the following key stages:
 
 ### Prerequisites
 
-* .NET Core SDK 9 or a later compatible version. Installation instructions can be found at: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+* .NET SDK 10 and the .NET 9 runtime: the converter and its tests target .NET 9, `Updater.Console` targets .NET 10. Installation instructions can be found at: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
 
 ### Build Instructions
 
@@ -39,6 +39,7 @@ The application reads `config.json` from its working directory. `config.json` is
   "DepositorName": "",
   "DepositorEmail": "",
   "Registrant": "",
+  "RepositoryName": "Openlab Dataset",
   "ResultTimeoutMinutes": 5,
   "DoiMappings": [
     { "Doi": "10.xxxxx/example", "DepositoryRecordId": "abcde-12345" }
@@ -54,6 +55,7 @@ The application reads `config.json` from its working directory. `config.json` is
 - `DepositorName` - Name of the organization or person submitting the deposit
 - `DepositorEmail` - E-mail address CrossRef sends deposit success and error reports to
 - `Registrant` - Organization that owns the registered content
+- `RepositoryName` - Name of the Invenio RDM repository: the title of the CrossRef database datasets are registered in, and the default `publisher` of records (so not a journal title)
 - `ResultTimeoutMinutes` - How long to wait for CrossRef to process the deposits (`0` to skip waiting)
 - `DoiMappings` - The DOI to register for each Invenio RDM record id
 
@@ -72,3 +74,23 @@ For each entry in `DoiMappings` the tool:
 4. Uploads it to CrossRef under a unique file name.
 
 A record that fails any step is reported and skipped. The tool then waits up to `ResultTimeoutMinutes` for CrossRef's deposit results, prints them, and exits with code `1` if any record failed.
+
+### CrossRef content types
+
+| Invenio RDM resource type | CrossRef content type |
+|---|---|
+| Book (`publication-book`) | Book (monograph) |
+| Journal article (`publication-article`) | Journal article; the journal comes from the record's Journal field, or its `publisher` when that isn't `RepositoryName`. Without a journal it is deposited as posted content. |
+| Dataset (`dataset`) | Dataset in the `RepositoryName` database |
+| Anything else | Posted content (report) |
+
+A DOI that is already registered keeps its CrossRef content type, because CrossRef doesn't allow a deposit to change it. The record's first language is sent as the metadata language.
+
+### Tests
+
+```bash
+cd src
+dotnet test --filter "Category!=Integration"
+```
+
+Unit tests run offline. Integration tests (`Category=Integration`) fetch real records from https://dataset.cnu.edu.ua/ and validate the converted XML with CrossRef's online schema parser, which only checks the XML and never deposits it. CI runs both on every pull request.

@@ -1,5 +1,4 @@
 ﻿using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Xml.Linq;
 
 namespace ConverterPoC;
@@ -80,12 +79,12 @@ public class ContributorsParser
                         
                         if (personOrOrg.TryGetProperty("family_name", out var familyNameElement))
                         {
-                            familyName = familyNameElement.GetString();
+                            familyName = familyNameElement.GetString() ?? "";
                         }
                         
                         if (personOrOrg.TryGetProperty("given_name", out var givenNameElement))
                         {
-                            givenName = givenNameElement.GetString();
+                            givenName = givenNameElement.GetString() ?? "";
                         }
 
                         var personElement = new XElement(nameSpace + "person_name",
@@ -112,7 +111,7 @@ public class ContributorsParser
                             {
                                 if (affiliation.TryGetProperty("name", out var affName))
                                 {
-                                    institutions.Add(affName.GetString());
+                                    institutions.Add(affName.GetString() ?? "");
                                 }
                             }
 
@@ -130,7 +129,7 @@ public class ContributorsParser
                             foreach (var identifier in identifiers.EnumerateArray())
                             {
                                 if (identifier.TryGetProperty("scheme", out var scheme) && 
-                                    scheme.GetString().ToLower() == "orcid")
+                                    string.Equals(scheme.GetString(), "orcid", StringComparison.OrdinalIgnoreCase))
                                 {
                                     if (identifier.TryGetProperty("identifier", out var orcidValue))
                                     {

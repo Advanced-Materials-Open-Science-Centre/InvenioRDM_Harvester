@@ -7,16 +7,33 @@ public class CrossrefSchemaTests
     private static readonly XNamespace Crossref = TestRecords.Crossref;
 
     [Theory]
-    [InlineData("publication-book")]
-    [InlineData("publication-article")]
-    [InlineData("dataset")]
-    public void ConvertedRecord_IsValid(string resourceType)
+    [InlineData("publication-book", null)]
+    [InlineData("publication-article", null)]
+    [InlineData("dataset", null)]
+    [InlineData("presentation", null)]
+    [InlineData("publication-book", CrossrefContentType.JournalArticle)]
+    [InlineData("dataset", CrossrefContentType.PostedContent)]
+    public void ConvertedRecord_IsValid(string resourceType, CrossrefContentType? registeredType)
     {
         var json = TestRecords.Json(
             resourceType: resourceType,
             identifiers: """[{ "identifier": "978-966-668-664-3", "scheme": "isbn" }]""",
             references: """[{ "reference": "Reference 1" }]""",
-            description: "<p>Abstract with <strong>bold</strong> and x<sup>2</sup></p>");
+            description: "<p>Abstract with <strong>bold</strong> and x<sup>2</sup></p>",
+            languages: """[{ "id": "ukr" }]""",
+            customFields: """
+                { "journal:journal": { "title": "Test Journal", "issn": "1729-4428", "volume": "26", "issue": "1", "pages": "132-139" } }
+                """,
+            filesEnabled: false);
+
+        Assert.Empty(CrossrefSchema.Validate(TestRecords.Convert(json, registeredType).ToString()));
+    }
+
+    // Journal article whose publisher is the repository itself, deposited as posted content
+    [Fact]
+    public void JournalArticleWithoutJournal_IsValid()
+    {
+        var json = TestRecords.Json(resourceType: "publication-article", publisher: TestRecords.RepositoryName);
 
         Assert.Empty(CrossrefSchema.Validate(TestRecords.Convert(json).ToString()));
     }

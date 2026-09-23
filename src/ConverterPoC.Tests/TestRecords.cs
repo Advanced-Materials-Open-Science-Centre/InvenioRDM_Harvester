@@ -11,10 +11,15 @@ internal static class TestRecords
 
     public static readonly Depositor Depositor = new("Test Depositor", "depositor@example.org", "Test Registrant");
 
+    public const string RepositoryName = "Test Repository";
+
+    public static readonly ConversionSettings Settings = new(Depositor, RepositoryName);
+
     public const string PersonCreator =
         """[{ "person_or_org": { "type": "personal", "given_name": "Jane", "family_name": "Doe" } }]""";
 
-    // Minimal InvenioRDM record; creators, contributors, identifiers and references are raw JSON arrays
+    // Minimal InvenioRDM record; creators, contributors, identifiers, references and languages are
+    // raw JSON arrays, customFields a raw JSON object
     public static string Json(
         string resourceType = "publication-book",
         string creators = PersonCreator,
@@ -22,7 +27,11 @@ internal static class TestRecords
         string? identifiers = null,
         string? references = null,
         string? description = "Test abstract",
-        string? publicationDate = "2026-09-22")
+        string? publicationDate = "2026-09-22",
+        string? publisher = "Test Publisher",
+        string? languages = null,
+        string? customFields = null,
+        bool filesEnabled = true)
     {
         var optional = new StringBuilder();
 
@@ -41,26 +50,34 @@ internal static class TestRecords
         if (publicationDate != null)
             optional.Append($""" "publication_date": {JsonSerializer.Serialize(publicationDate)},""");
 
+        if (publisher != null)
+            optional.Append($""" "publisher": {JsonSerializer.Serialize(publisher)},""");
+
+        if (languages != null)
+            optional.Append($""" "languages": {languages},""");
+
         return $$"""
             {
+              "files": { "enabled": {{(filesEnabled ? "true" : "false")}} },
+              "custom_fields": {{customFields ?? "{}"}},
               "metadata": {
                 "resource_type": { "id": "{{resourceType}}", "title": { "en": "Test type" } },
                 "creators": {{creators}},
                 {{optional}}
-                "title": "Test record",
-                "publisher": "Test Publisher"
+                "title": "Test record"
               }
             }
             """;
     }
 
-    public static XDocument Convert(string json)
+    public static XDocument Convert(string json, CrossrefContentType? registeredType = null)
     {
         var xml = FromJsonConverter.Convert(
-            Depositor,
+            Settings,
             json,
             "10.15330/test.26.09.01",
-            "https://example.org/records/test");
+            "https://example.org/records/test",
+            registeredType);
 
         Assert.NotNull(xml);
 
