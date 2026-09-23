@@ -17,6 +17,12 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      # Crossref schema files, downloaded on first use by CrossrefSchema
+      - uses: actions/cache@v6
+        with:
+          path: src/ConverterPoC.Tests/bin/Release/net9.0/Schemas
+          key: crossref-schemas-5.3.1
+
       - name: Restore
         run: dotnet restore src/ConverterPoC.sln
 
@@ -38,6 +44,11 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 9.0.x
+
+      - uses: actions/cache@v6
+        with:
+          path: src/ConverterPoC.Tests/bin/Release/net9.0/Schemas
+          key: crossref-schemas-5.3.1
 
       - name: Test
         run: dotnet test src/ConverterPoC.Tests --configuration Release --filter "Category=Integration" --logger "console;verbosity=normal"
