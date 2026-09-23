@@ -38,7 +38,7 @@ public class CrossrefParserIntegrationTests
     [InlineData("r8dan-5am76")] // Dataset
     [InlineData("y5h2x-ar532")] // Dataset
     [InlineData("ze5w3-s2j74")] // Dataset
-    [InlineData("cnbk2-1v052")] // Presentation
+    [InlineData("cnbk2-1v052")] // Presentation with funding
     [InlineData("t4ez2-mfy80")] // Journal article without journal info, deposited as posted content
     [InlineData("6tdhm-d7z68")] // Book without an ISBN identifier
     [InlineData("mztvt-77b28")] // Dataset with an organization as first creator
@@ -46,6 +46,7 @@ public class CrossrefParserIntegrationTests
     [InlineData("tks6t-8t124")] // Journal article with a year-only publication date
     [InlineData("72s70-9vg34")] // Journal article, journal named in publisher
     [InlineData("arm2g-27d02")] // Dataset without a description
+    [InlineData("44ac7-pem35")] // Related identifier (documents an ISBN)
     public async Task RealRecord_ConvertedXml_PassesCrossrefParser(string recordId)
     {
         var xml = await ConvertRealRecordAsync(recordId);

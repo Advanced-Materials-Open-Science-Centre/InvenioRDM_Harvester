@@ -1,8 +1,10 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Xml.Linq;
 
 namespace ConverterPoC;
 
+// Creators become authors; contributors are included when their role has a Crossref equivalent.
+// Throws on entries it can't read, so a record never silently loses its authors.
 public class ContributorsParser
 {
     // InvenioRDM contributor role id -> Crossref contributor_role. Crossref has no roles for the
@@ -14,157 +16,105 @@ public class ContributorsParser
 
     public static XElement ConvertContributorsToXml(XNamespace nameSpace, JsonElement root)
     {
-        try
+        if (!root.TryGetProperty("metadata", out var metadata))
+            throw new InvalidOperationException("No metadata found in the InvenioRDM JSON");
+
+        // Creators are the authors of the work regardless of their InvenioRDM role
+        var entries = Array(metadata, "creators").Select(c => (Contributor: c, Role: "author")).ToList();
+
+        if (entries.Count == 0)
+            throw new InvalidOperationException("Record has no creators");
+
+        var skippedRoles = new List<string>();
+
+        foreach (var contributor in Array(metadata, "contributors"))
         {
-            if (!root.TryGetProperty("metadata", out var metadata))
-            {
-                throw new Exception("No metadata found in the InvenioRDM JSON");
-            }
+            var role = String(Object(contributor, "role"), "id") ?? "";
 
-            // Creators are the authors of the work regardless of their InvenioRDM role
-            var entries = new List<(JsonElement Contributor, string Role)>();
-
-            if (metadata.TryGetProperty("creators", out var creators) &&
-                creators.ValueKind == JsonValueKind.Array)
-            {
-                entries.AddRange(creators.EnumerateArray().Select(c => (c, "author")));
-            }
-
-            var skippedRoles = new List<string>();
-
-            if (metadata.TryGetProperty("contributors", out var contributors) &&
-                contributors.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var contributor in contributors.EnumerateArray())
-                {
-                    var role = contributor.TryGetProperty("role", out var roleElement) &&
-                               roleElement.TryGetProperty("id", out var roleId)
-                        ? roleId.GetString() ?? ""
-                        : "";
-
-                    if (CrossrefRoles.TryGetValue(role, out var crossrefRole))
-                        entries.Add((contributor, crossrefRole));
-                    else
-                        skippedRoles.Add(role == "" ? "(none)" : role);
-                }
-            }
-
-            if (skippedRoles.Count > 0)
-            {
-                Console.WriteLine($"Skipped {skippedRoles.Count} contributor(s) with roles that have no Crossref equivalent: " +
-                                  string.Join(", ", skippedRoles.Distinct()));
-            }
-
-            if (entries.Count == 0)
-            {
-                throw new Exception("No contributors/creators found in the InvenioRDM JSON");
-            }
-
-            var contributorsElement = new XElement(nameSpace + "contributors");
-
-            var contributorCount = 0;
-
-            foreach (var (contributor, contributorType) in entries)
-            {
-                contributorCount++;
-                var sequence = contributorCount == 1 ? "first" : "additional";
-
-                if (contributor.TryGetProperty("person_or_org", out var personOrOrg))
-                {
-                    if (personOrOrg.TryGetProperty("type", out var type) && 
-                        type.GetString() == "personal")
-                    {
-                        var familyName = "";
-                        var givenName = "";
-                        
-                        if (personOrOrg.TryGetProperty("family_name", out var familyNameElement))
-                        {
-                            familyName = familyNameElement.GetString() ?? "";
-                        }
-                        
-                        if (personOrOrg.TryGetProperty("given_name", out var givenNameElement))
-                        {
-                            givenName = givenNameElement.GetString() ?? "";
-                        }
-
-                        var personElement = new XElement(nameSpace + "person_name",
-                            new XAttribute("sequence", sequence),
-                            new XAttribute("contributor_role", contributorType)
-                        );
-                        
-                        if (!string.IsNullOrEmpty(givenName))
-                        {
-                            personElement.Add(new XElement(nameSpace + "given_name", givenName));
-                        }
-                        
-                        if (!string.IsNullOrEmpty(familyName))
-                        {
-                            personElement.Add(new XElement(nameSpace + "surname", familyName));
-                        }
-
-                        if (contributor.TryGetProperty("affiliations", out var affiliations))
-                        {
-                            var institutions = new List<string>();
-                            
-                            
-                            foreach (var affiliation in affiliations.EnumerateArray())
-                            {
-                                if (affiliation.TryGetProperty("name", out var affName))
-                                {
-                                    institutions.Add(affName.GetString() ?? "");
-                                }
-                            }
-
-                            if (institutions.Any())
-                            {
-                                var insts = institutions.Select(ins => new XElement(nameSpace + "institution",
-                                    new XElement(nameSpace + "institution_name", ins)));
-                                
-                                personElement.Add(new XElement(nameSpace + "affiliations", insts));
-                            }
-                        }
-                        
-                        if (personOrOrg.TryGetProperty("identifiers", out var identifiers))
-                        {
-                            foreach (var identifier in identifiers.EnumerateArray())
-                            {
-                                if (identifier.TryGetProperty("scheme", out var scheme) && 
-                                    string.Equals(scheme.GetString(), "orcid", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    if (identifier.TryGetProperty("identifier", out var orcidValue))
-                                    {
-                                        var orcid = orcidValue.GetString();
-
-                                        personElement.Add(new XElement(nameSpace + "ORCID", "https://orcid.org/" + orcid));
-                                    }
-                                }
-                            }
-                        }
-
-                        contributorsElement.Add(personElement);
-                    }
-                    else if (type.GetString() == "organizational")
-                    {
-                        if (personOrOrg.TryGetProperty("name", out var nameElement))
-                        {
-                            var orgElement = new XElement(nameSpace + "organization", 
-                                new XAttribute("sequence", sequence),
-                                new XAttribute("contributor_role", contributorType),
-                                nameElement.GetString()
-                            );
-                            
-                            contributorsElement.Add(orgElement);
-                        }
-                    }
-                }
-            }
-            
-            return contributorsElement;
+            if (CrossrefRoles.TryGetValue(role, out var crossrefRole))
+                entries.Add((contributor, crossrefRole));
+            else
+                skippedRoles.Add(role == "" ? "(none)" : role);
         }
-        catch (Exception ex)
+
+        if (skippedRoles.Count > 0)
         {
-            return new XElement("contributors", 
-                new XComment($"Error converting contributors: {ex.Message}"));
+            Console.WriteLine($"Skipped {skippedRoles.Count} contributor(s) with roles that have no Crossref equivalent: " +
+                              string.Join(", ", skippedRoles.Distinct()));
         }
+
+        return new XElement(nameSpace + "contributors",
+            entries.Select((entry, index) =>
+                ToXml(nameSpace, entry.Contributor, entry.Role, index == 0 ? "first" : "additional", index + 1)));
     }
+
+    private static XElement ToXml(XNamespace ns, JsonElement contributor, string role, string sequence, int position)
+    {
+        var personOrOrg = Object(contributor, "person_or_org");
+        var type = String(personOrOrg, "type");
+
+        if (type == "organizational")
+        {
+            var name = String(personOrOrg, "name");
+
+            if (string.IsNullOrWhiteSpace(name))
+                throw new InvalidOperationException($"Creator/contributor {position} is an organization without a name");
+
+            return new XElement(ns + "organization",
+                new XAttribute("sequence", sequence),
+                new XAttribute("contributor_role", role),
+                name);
+        }
+
+        if (type != "personal")
+            throw new InvalidOperationException($"Creator/contributor {position} has unknown person_or_org type '{type}'");
+
+        var givenName = String(personOrOrg, "given_name");
+        var familyName = String(personOrOrg, "family_name");
+
+        if (string.IsNullOrWhiteSpace(givenName) && string.IsNullOrWhiteSpace(familyName))
+            throw new InvalidOperationException($"Creator/contributor {position} has no name");
+
+        var institutions = Array(contributor, "affiliations")
+            .Select(affiliation => String(affiliation, "name"))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => new XElement(ns + "institution", new XElement(ns + "institution_name", name)))
+            .ToList();
+
+        // Crossref takes a single ORCID per person
+        var orcid = Array(personOrOrg, "identifiers")
+            .Where(identifier => string.Equals(String(identifier, "scheme"), "orcid", StringComparison.OrdinalIgnoreCase))
+            .Select(identifier => String(identifier, "identifier"))
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+        return new XElement(ns + "person_name",
+            new XAttribute("sequence", sequence),
+            new XAttribute("contributor_role", role),
+            string.IsNullOrWhiteSpace(givenName) ? null : new XElement(ns + "given_name", givenName),
+            // Crossref requires a surname; a person with only a given name is deposited under it
+            new XElement(ns + "surname", string.IsNullOrWhiteSpace(familyName) ? givenName : familyName),
+            institutions.Count > 0 ? new XElement(ns + "affiliations", institutions) : null,
+            orcid != null ? new XElement(ns + "ORCID", "https://orcid.org/" + orcid) : null);
+    }
+
+    private static IEnumerable<JsonElement> Array(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray()
+            : [];
+
+    private static JsonElement Object(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Object
+            ? value
+            : default;
+
+    private static string? String(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 }
