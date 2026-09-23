@@ -13,12 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # ConverterPoC and its tests target net9.0, Updater.Console targets net10.0
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          dotnet-version: 9.0.x
 
       - name: Restore
         run: dotnet restore src/ConverterPoC.sln
