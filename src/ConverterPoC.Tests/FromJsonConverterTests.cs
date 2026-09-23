@@ -32,7 +32,7 @@ public class FromJsonConverterTests
     [Theory]
     [InlineData("publication-book", "book_metadata")]
     [InlineData("publication-article", "journal_article")]
-    [InlineData("dataset", "posted_content")]
+    [InlineData("presentation", "posted_content")]
     public void Abstract_HtmlDescription_IsConvertedToJatsParagraphs(string resourceType, string parent)
     {
         var json = TestRecords.Json(
@@ -107,7 +107,7 @@ public class FromJsonConverterTests
     [Theory]
     [InlineData("publication-book", "book")]
     [InlineData("publication-article", "journal")]
-    [InlineData("dataset", "posted_content")]
+    [InlineData("dataset", "database")]
     [InlineData("presentation", "posted_content")]
     [InlineData("publication-conferencepaper", "posted_content")]
     public void ResourceTypeId_SelectsCrossrefContentType(string resourceType, string expected)

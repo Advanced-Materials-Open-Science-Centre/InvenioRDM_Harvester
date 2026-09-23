@@ -10,11 +10,11 @@ var unconfirmed = new List<string>();
 try
 {
     var config = Config.Load("config.json");
-    var depositor = config.GetDepositor();
+    var settings = config.GetConversionSettings();
 
     Console.WriteLine("Invenio RDM URL: " + config.ApiUrl);
     Console.WriteLine("CrossRef API URL: " + config.CrossRefApiUrl);
-    Console.WriteLine("Depositor: " + depositor.Name + " <" + depositor.Email + ">");
+    Console.WriteLine("Depositor: " + settings.Depositor.Name + " <" + settings.Depositor.Email + ">");
 
     var instanceAddress = config.ApiUrl;
     var rdmClient = new InvenioRDMClient(instanceAddress, config.AccessToken);
@@ -34,7 +34,7 @@ try
 
         try
         {
-            submissions.Add(await ProcessRecordAsync(mapping, rdmClient, crossrefClient, depositor, recordUrl));
+            submissions.Add(await ProcessRecordAsync(mapping, rdmClient, crossrefClient, settings, recordUrl));
         }
         catch (Exception ex)
         {
@@ -66,7 +66,7 @@ async Task<Submission> ProcessRecordAsync(
     DoiMapping mapping,
     InvenioRDMClient invenioRdmClient,
     CrossrefApiClient crossrefApiClient,
-    Depositor depositor,
+    ConversionSettings settings,
     string recordUrl)
 {
     Console.WriteLine("*****************");
@@ -87,14 +87,23 @@ async Task<Submission> ProcessRecordAsync(
     var registered = await crossrefApiClient.GetWorkAsync(mapping.Doi);
     DoiGuard.CheckRegistration(mapping.Doi, registered?.Resource?.Primary?.Url, mapping.DepositoryRecordId);
 
+    CrossrefContentType? registeredType = null;
+
     if (registered != null)
-        Console.WriteLine("DOI is already registered for this record; the deposit updates its metadata");
+    {
+        // Crossref doesn't let a deposit change a DOI's content type, so updates keep the registered one
+        registeredType = CrossrefContentTypes.FromRegisteredType(registered.Type) ??
+                         throw new InvalidOperationException($"DOI is registered as {registered.Type}, which this tool can't deposit");
+
+        Console.WriteLine($"DOI is already registered for this record as {registered.Type}; the deposit updates its metadata");
+    }
 
     var converted = FromJsonConverter.Convert(
-        depositor,
+        settings,
         contents,
         mapping.Doi,
-        recordUrl
+        recordUrl,
+        registeredType
     );
 
     var formattedJson = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });

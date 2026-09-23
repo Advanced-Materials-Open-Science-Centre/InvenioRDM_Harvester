@@ -39,11 +39,13 @@ public class CrossrefParserIntegrationTests
     [InlineData("y5h2x-ar532")] // Dataset
     [InlineData("ze5w3-s2j74")] // Dataset
     [InlineData("cnbk2-1v052")] // Presentation
-    [InlineData("t4ez2-mfy80")] // Journal article
+    [InlineData("t4ez2-mfy80")] // Journal article without journal info, deposited as posted content
     [InlineData("6tdhm-d7z68")] // Book without an ISBN identifier
     [InlineData("mztvt-77b28")] // Dataset with an organization as first creator
     [InlineData("ctk9d-c6s53")] // Other, with an editor contributor
     [InlineData("tks6t-8t124")] // Journal article with a year-only publication date
+    [InlineData("72s70-9vg34")] // Journal article, journal named in publisher
+    [InlineData("arm2g-27d02")] // Dataset without a description
     public async Task RealRecord_ConvertedXml_PassesCrossrefParser(string recordId)
     {
         var xml = await ConvertRealRecordAsync(recordId);
@@ -75,7 +77,7 @@ public class CrossrefParserIntegrationTests
         var json = await Http.GetStringAsync($"{RepositoryUrl}api/records/{recordId}");
 
         var xml = FromJsonConverter.Convert(
-            TestRecords.Depositor,
+            TestRecords.Settings,
             json,
             TestDoi,
             $"{RepositoryUrl}records/{recordId}");

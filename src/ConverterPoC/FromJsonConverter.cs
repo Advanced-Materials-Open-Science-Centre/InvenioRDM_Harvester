@@ -17,12 +17,14 @@ public static class FromJsonConverter
     private static readonly XNamespace Relations = "http://www.crossref.org/relations.xsd";
     private static readonly XNamespace Xsi = "http://www.w3.org/2001/XMLSchema-instance";
 
-    // Throws when the record can't be converted, so the caller can report and skip it
+    // Throws when the record can't be converted, so the caller can report and skip it.
+    // registeredType is the content type of an already registered DOI, which updates must keep.
     public static string Convert(
-        Depositor depositor,
+        ConversionSettings settings,
         string invenioRdmJson,
         string doi,
-        string recordUrl)
+        string recordUrl,
+        CrossrefContentType? registeredType = null)
     {
         using var record = JsonDocument.Parse(invenioRdmJson);
 
@@ -36,8 +38,8 @@ public static class FromJsonConverter
                 new XAttribute("version", "5.3.1"),
                 new XAttribute(Xsi + "schemaLocation",
                     "http://www.crossref.org/schema/5.3.1 http://www.crossref.org/schemas/crossref5.3.1.xsd"),
-                BuildHead(depositor),
-                new XElement(Crossref + "body", BuildContent(record.RootElement, doi, recordUrl))
+                BuildHead(settings.Depositor),
+                new XElement(Crossref + "body", BuildContent(record.RootElement, settings, doi, recordUrl, registeredType))
             )
         );
 
@@ -45,7 +47,7 @@ public static class FromJsonConverter
 
         using var sw = new Utf8StringWriter(sb);
 
-        var settings = new XmlWriterSettings
+        var writerSettings = new XmlWriterSettings
         {
             Indent = true,
             Encoding = Encoding.UTF8,
@@ -53,7 +55,7 @@ public static class FromJsonConverter
             OmitXmlDeclaration = false
         };
 
-        using var writer = XmlWriter.Create(sw, settings);
+        using var writer = XmlWriter.Create(sw, writerSettings);
 
         crossrefDoc.WriteTo(writer);
 
@@ -72,17 +74,38 @@ public static class FromJsonConverter
             new XElement(Crossref + "registrant", depositor.Registrant)
         );
 
-    private static XElement BuildContent(JsonElement root, string doi, string recordUrl)
+    private static XElement BuildContent(
+        JsonElement root,
+        ConversionSettings settings,
+        string doi,
+        string recordUrl,
+        CrossrefContentType? registeredType)
     {
         var metadata = root.GetProperty("metadata");
 
         // Vocabulary id (e.g. "publication-book"); the display title can be renamed or translated
-        var type = metadata.GetProperty("resource_type").GetProperty("id").GetString();
+        var contentType = registeredType ??
+                          CrossrefContentTypes.FromResourceType(metadata.GetProperty("resource_type").GetProperty("id").GetString());
 
-        return type switch
+        var journal = contentType == CrossrefContentType.JournalArticle ? GetJournal(root, metadata, settings) : null;
+
+        if (contentType == CrossrefContentType.JournalArticle && journal == null)
         {
-            "publication-book" => CreateBook(root, metadata, doi, recordUrl),
-            "publication-article" => CreateJournal(root, metadata, doi, recordUrl),
+            if (registeredType != null)
+                throw new InvalidOperationException(
+                    "DOI is registered as a journal article, but the record has no journal title: fill in its Journal field in InvenioRDM");
+
+            // A journal with the article's title would be wrong metadata; deposit it as a generic work
+            Console.WriteLine("Warning: journal article has no journal title (Journal field or a publisher other than " +
+                              $"{settings.RepositoryName}); depositing it as posted content");
+            contentType = CrossrefContentType.PostedContent;
+        }
+
+        return contentType switch
+        {
+            CrossrefContentType.Book => CreateBook(root, metadata, doi, recordUrl),
+            CrossrefContentType.JournalArticle => CreateJournal(root, metadata, journal!, doi, recordUrl),
+            CrossrefContentType.Dataset => CreateDataset(root, metadata, settings, doi, recordUrl),
             _ => CreatePostedContent(root, metadata, doi, recordUrl)
         };
     }
@@ -93,7 +116,7 @@ public static class FromJsonConverter
         new(Crossref + "book",
             new XAttribute("book_type", "monograph"),
             new XElement(Crossref + "book_metadata",
-                new XAttribute("language", "en"),
+                Language(metadata),
                 Contributors(root),
                 Titles(metadata),
                 Abstract(metadata),
@@ -108,6 +131,7 @@ public static class FromJsonConverter
     private static XElement CreatePostedContent(JsonElement root, JsonElement metadata, string doi, string recordUrl) =>
         new(Crossref + "posted_content",
             new XAttribute("type", "report"),
+            Language(metadata),
             Contributors(root),
             Titles(metadata),
             new XElement(Crossref + "posted_date", GetPublicationDate(metadata).ToCrossref(Crossref)),
@@ -116,28 +140,123 @@ public static class FromJsonConverter
             CitationList(metadata)
         );
 
-    private static XElement CreateJournal(JsonElement root, JsonElement metadata, string doi, string recordUrl)
+    private static XElement CreateJournal(JsonElement root, JsonElement metadata, Journal journal, string doi, string recordUrl)
     {
         var publicationDate = GetPublicationDate(metadata);
 
         return new XElement(Crossref + "journal",
             new XElement(Crossref + "journal_metadata",
-                new XElement(Crossref + "full_title", GetString(metadata, "title"))
+                new XElement(Crossref + "full_title", journal.Title),
+                journal.Issn != null ? new XElement(Crossref + "issn", journal.Issn) : null
             ),
             new XElement(Crossref + "journal_issue",
-                new XElement(Crossref + "publication_date", new XElement(Crossref + "year", publicationDate.Year))
+                new XElement(Crossref + "publication_date", new XElement(Crossref + "year", publicationDate.Year)),
+                journal.Volume != null ? new XElement(Crossref + "journal_volume", new XElement(Crossref + "volume", journal.Volume)) : null,
+                journal.Issue != null ? new XElement(Crossref + "issue", journal.Issue) : null
             ),
             new XElement(Crossref + "journal_article",
-                new XAttribute("publication_type", "abstract_only"),
+                // Default full_text; metadata-only records have no text to link to
+                HasFiles(root) ? null : new XAttribute("publication_type", "bibliographic_record"),
+                Language(metadata),
                 Titles(metadata),
                 Contributors(root),
                 Abstract(metadata),
                 new XElement(Crossref + "publication_date", publicationDate.ToCrossref(Crossref)),
+                Pages(journal.Pages),
                 DoiData(doi, recordUrl),
                 CitationList(metadata)
             )
         );
     }
+
+    // A dataset in the Crossref database for the whole repository
+    private static XElement CreateDataset(
+        JsonElement root,
+        JsonElement metadata,
+        ConversionSettings settings,
+        string doi,
+        string recordUrl)
+    {
+        var description = HtmlToJats.ToParagraphs(GetString(metadata, "description"), Jats);
+
+        return new XElement(Crossref + "database",
+            new XElement(Crossref + "database_metadata",
+                new XElement(Crossref + "titles", new XElement(Crossref + "title", settings.RepositoryName))
+            ),
+            new XElement(Crossref + "dataset",
+                new XAttribute("dataset_type", "record"),
+                Contributors(root),
+                Titles(metadata),
+                new XElement(Crossref + "database_date",
+                    new XElement(Crossref + "publication_date", GetPublicationDate(metadata).ToCrossref(Crossref))),
+                description.Count > 0
+                    ? new XElement(Crossref + "description",
+                        Language(metadata),
+                        string.Join("\n\n", description.Select(p => p.Value)))
+                    : null,
+                DoiData(doi, recordUrl),
+                CitationList(metadata)
+            )
+        );
+    }
+
+    private record Journal(string Title, string? Issn, string? Volume, string? Issue, string? Pages);
+
+    // From InvenioRDM's Journal custom field. This repository doesn't use it and depositors put the
+    // journal name in publisher instead, so publisher is used unless it's the repository's own name.
+    private static Journal? GetJournal(JsonElement root, JsonElement metadata, ConversionSettings settings)
+    {
+        var journalField = root.TryGetProperty("custom_fields", out var customFields) &&
+                           customFields.ValueKind == JsonValueKind.Object &&
+                           customFields.TryGetProperty("journal:journal", out var field)
+            ? field
+            : default;
+
+        var publisher = GetString(metadata, "publisher");
+
+        var title = GetString(journalField, "title") ??
+                    (!string.IsNullOrWhiteSpace(publisher) &&
+                     !publisher.Trim().Equals(settings.RepositoryName.Trim(), StringComparison.OrdinalIgnoreCase)
+                        ? publisher.Trim()
+                        : null);
+
+        if (string.IsNullOrWhiteSpace(title))
+            return null;
+
+        var issn = GetString(journalField, "issn")?.Trim();
+
+        return new Journal(
+            title,
+            issn != null && Regex.IsMatch(issn, @"^[0-9]{4}-?[0-9]{3}[0-9X]$") ? issn : null,
+            NullIfBlank(GetString(journalField, "volume")),
+            NullIfBlank(GetString(journalField, "issue")),
+            NullIfBlank(GetString(journalField, "pages")));
+    }
+
+    // "132-139" -> first_page 132, last_page 139
+    private static XElement? Pages(string? pages)
+    {
+        if (pages == null)
+            return null;
+
+        var parts = pages.Split(['-', '–'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        return new XElement(Crossref + "pages",
+            new XElement(Crossref + "first_page", parts[0]),
+            parts.Length > 1 ? new XElement(Crossref + "last_page", parts[1]) : null);
+    }
+
+    private static bool HasFiles(JsonElement root) =>
+        !(root.TryGetProperty("files", out var files) &&
+          files.ValueKind == JsonValueKind.Object &&
+          files.TryGetProperty("enabled", out var enabled) &&
+          enabled.ValueKind == JsonValueKind.False);
+
+    private static XAttribute? Language(JsonElement metadata) =>
+        Languages.ToCrossref(metadata) is { } language ? new XAttribute("language", language) : null;
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static XElement? Contributors(JsonElement root)
     {
@@ -236,7 +355,9 @@ public static class FromJsonConverter
     }
 
     private static string? GetString(JsonElement element, string property) =>
-        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 
