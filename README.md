@@ -12,7 +12,7 @@ The automated transfer process involves the following key stages:
 
 ### Prerequisites
 
-* .NET SDK 9 or later. Installation instructions can be found at: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+* .NET SDK 10 or later. Installation instructions can be found at: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
 
 ### Build Instructions
 
