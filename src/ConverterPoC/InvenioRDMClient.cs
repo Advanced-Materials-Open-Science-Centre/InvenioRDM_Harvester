@@ -6,24 +6,32 @@ namespace ConverterPoC;
 public class InvenioRDMClient
 {
     private readonly string _apiUrl;
+    private readonly string? _token;
     private readonly HttpClient _client;
+    private readonly TimeSpan _retryDelay;
 
-    public InvenioRDMClient(string apiUrl, string? token)
+    public InvenioRDMClient(string apiUrl, string? token, HttpClient? httpClient = null, TimeSpan? retryDelay = null)
     {
         _apiUrl = apiUrl;
-        _client = new HttpClient();
-
-        // Public records can be read anonymously
-        if (!string.IsNullOrEmpty(token))
-            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        _token = token;
+        _client = httpClient ?? new HttpClient();
+        _retryDelay = retryDelay ?? TimeSpan.FromSeconds(2);
     }
 
     // Always fetches the current record: a local copy would go stale after edits in InvenioRDM
     public async Task<string?> LoadRecordAsync(string recordId)
     {
-        using var response = await _client.GetAsync($"{_apiUrl}api/records/{recordId}");
+        using var response = await HttpRetry.SendAsync(_client, () =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"{_apiUrl}api/records/{recordId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            // Public records can be read anonymously
+            if (!string.IsNullOrEmpty(_token))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+
+            return request;
+        }, _retryDelay);
 
         if (!response.IsSuccessStatusCode)
         {

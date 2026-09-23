@@ -1,12 +1,6 @@
-using System.Text.Json;
-using System.Xml.Linq;
 using ConverterPoC;
 
-var resultPollInterval = TimeSpan.FromSeconds(15);
-
-var failed = new List<string>();
-var unconfirmed = new List<string>();
-
+// Exit code: 0 all deposited, 1 a record failed, 2 some deposits not confirmed by Crossref yet
 try
 {
     var config = Config.Load("config.json");
@@ -16,176 +10,20 @@ try
     Console.WriteLine("CrossRef API URL: " + config.CrossRefApiUrl);
     Console.WriteLine("Depositor: " + settings.Depositor.Name + " <" + settings.Depositor.Email + ">");
 
-    var instanceAddress = config.ApiUrl;
-    var rdmClient = new InvenioRDMClient(instanceAddress, config.AccessToken);
+    var workflow = new DepositWorkflow(
+        settings,
+        config.ApiUrl,
+        new InvenioRDMClient(config.ApiUrl, config.AccessToken),
+        new CrossrefApiClient(config.CrossRefUser, config.CrossRefPassword, config.CrossRefApiUrl),
+        Console.Out,
+        Directory.GetCurrentDirectory());
 
-    var crossrefClient = new CrossrefApiClient(
-        username: config.CrossRefUser,
-        password: config.CrossRefPassword,
-        apiUrl: config.CrossRefApiUrl
-    );
+    var summary = await workflow.RunAsync(config.DoiMappings ?? [], TimeSpan.FromMinutes(config.ResultTimeoutMinutes));
 
-    var mappings = config.DoiMappings ?? [];
-    var submissions = new List<Submission>();
-
-    foreach (var mapping in mappings)
-    {
-        var recordUrl = config.ApiUrl + "records/" + mapping.DepositoryRecordId;
-
-        try
-        {
-            submissions.Add(await ProcessRecordAsync(mapping, rdmClient, crossrefClient, settings, recordUrl));
-        }
-        catch (Exception ex)
-        {
-            // One bad record shouldn't block the rest of the batch
-            Console.WriteLine($"Record {mapping.DepositoryRecordId} failed: {ex.Message}");
-            failed.Add(mapping.DepositoryRecordId);
-        }
-
-        await Task.Delay(TimeSpan.FromSeconds(1));
-    }
-
-    if (submissions.Count > 0)
-        await WaitForResultsAsync(crossrefClient, submissions, TimeSpan.FromMinutes(config.ResultTimeoutMinutes));
-
-    Console.WriteLine("*****************");
-    Console.WriteLine($"{mappings.Length - failed.Count - unconfirmed.Count} of {mappings.Length} record(s) deposited" +
-                      (failed.Count > 0 ? "; failed: " + string.Join(", ", failed) : "") +
-                      (unconfirmed.Count > 0 ? "; not confirmed yet: " + string.Join(", ", unconfirmed) : ""));
+    return summary.ExitCode;
 }
 catch (Exception ex)
 {
     Console.WriteLine("Exception: " + ex.Message);
     return 1;
 }
-
-return failed.Count == 0 ? 0 : 1;
-
-async Task<Submission> ProcessRecordAsync(
-    DoiMapping mapping,
-    InvenioRDMClient invenioRdmClient,
-    CrossrefApiClient crossrefApiClient,
-    ConversionSettings settings,
-    string recordUrl)
-{
-    Console.WriteLine("*****************");
-    Console.WriteLine("Record ID: " + mapping.DepositoryRecordId);
-    Console.WriteLine("DOI: " + mapping.Doi);
-
-    if (string.IsNullOrWhiteSpace(mapping.Doi))
-        throw new InvalidOperationException("The DoiMappings entry has no Doi");
-
-    var contents = await invenioRdmClient.LoadRecordAsync(mapping.DepositoryRecordId)
-                   ?? throw new InvalidOperationException("Could not load the record from InvenioRDM");
-
-    using var doc = JsonDocument.Parse(contents);
-
-    foreach (var warning in DoiGuard.CheckRecordDois(DoiGuard.GetRecordDois(doc.RootElement), mapping.Doi))
-        Console.WriteLine("Warning: " + warning);
-
-    var registered = await crossrefApiClient.GetWorkAsync(mapping.Doi);
-    DoiGuard.CheckRegistration(mapping.Doi, registered?.Resource?.Primary?.Url, mapping.DepositoryRecordId);
-
-    CrossrefContentType? registeredType = null;
-
-    if (registered != null)
-    {
-        // Crossref doesn't let a deposit change a DOI's content type, so updates keep the registered one
-        registeredType = CrossrefContentTypes.FromRegisteredType(registered.Type) ??
-                         throw new InvalidOperationException($"DOI is registered as {registered.Type}, which this tool can't deposit");
-
-        Console.WriteLine($"DOI is already registered for this record as {registered.Type}; the deposit updates its metadata");
-    }
-
-    var converted = FromJsonConverter.Convert(
-        settings,
-        contents,
-        mapping.Doi,
-        recordUrl,
-        registeredType
-    );
-
-    var formattedJson = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
-
-    var xmlFileName = $"{mapping.DepositoryRecordId}.xml";
-
-    await File.WriteAllTextAsync($"{mapping.DepositoryRecordId}.json", formattedJson);
-    await File.WriteAllTextAsync(xmlFileName, converted);
-
-    var schemaErrors = CrossrefSchema.Validate(converted);
-
-    if (schemaErrors.Count > 0)
-        throw new InvalidOperationException(
-            $"{xmlFileName} doesn't match the Crossref schema, not submitted:{Environment.NewLine}  " +
-            string.Join(Environment.NewLine + "  ", schemaErrors));
-
-    // Crossref's deposit log is looked up by file name and returns the first match, so every
-    // upload needs its own name
-    var batchId = XDocument.Parse(converted).Descendants().First(e => e.Name.LocalName == "doi_batch_id").Value;
-    var uploadFileName = $"{mapping.DepositoryRecordId}_{batchId}.xml";
-
-    var resp = await crossrefApiClient.SubmitMetadataAsync(uploadFileName, converted);
-
-    Console.WriteLine("CrossRef response: " + resp.Trim());
-
-    return new Submission(mapping.DepositoryRecordId, uploadFileName);
-}
-
-// Crossref processes deposits asynchronously; poll the deposit logs until each one is completed
-async Task WaitForResultsAsync(CrossrefApiClient crossrefApiClient, List<Submission> submissions, TimeSpan timeout)
-{
-    var waiting = submissions.ToList();
-    var lastStatus = new Dictionary<Submission, string>();
-    var deadline = DateTime.UtcNow + timeout;
-
-    Console.WriteLine("*****************");
-
-    if (timeout > TimeSpan.Zero)
-        Console.WriteLine($"Waiting up to {timeout.TotalMinutes:0} minute(s) for Crossref to process {waiting.Count} deposit(s)...");
-
-    while (waiting.Count > 0 && DateTime.UtcNow < deadline)
-    {
-        await Task.Delay(resultPollInterval);
-
-        foreach (var submission in waiting.ToList())
-        {
-            DepositResult result;
-
-            try
-            {
-                result = DepositResult.Parse(await crossrefApiClient.GetSubmissionResultAsync(submission.FileName));
-            }
-            catch (Exception ex) when (ex is FormatException or HttpRequestException)
-            {
-                // Not in the queue yet, or a transient error: try again on the next round
-                lastStatus[submission] = ex.Message;
-                continue;
-            }
-
-            if (!result.IsCompleted)
-            {
-                lastStatus[submission] = $"status {result.Status}";
-                continue;
-            }
-
-            waiting.Remove(submission);
-
-            foreach (var record in result.Records)
-                Console.WriteLine($"Record {submission.RecordId}: {record.Status} {record.Doi} {record.Message}".TrimEnd());
-
-            if (!result.Succeeded)
-                failed.Add(submission.RecordId);
-        }
-    }
-
-    foreach (var submission in waiting)
-    {
-        Console.WriteLine($"Record {submission.RecordId}: no result yet for {submission.FileName}" +
-                          (lastStatus.TryGetValue(submission, out var status) ? $" ({status})" : "") +
-                          "; check Crossref's submission queue later");
-        unconfirmed.Add(submission.RecordId);
-    }
-}
-
-record Submission(string RecordId, string FileName);

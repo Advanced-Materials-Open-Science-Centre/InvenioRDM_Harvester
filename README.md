@@ -73,7 +73,9 @@ For each entry in `DoiMappings` the tool:
 3. Converts the record to `<record id>.xml` and validates it against the CrossRef 5.3.1 schema. The schema files are downloaded from https://www.crossref.org/schemas/ the first time they are needed and cached in a `Schemas` folder next to the executable; delete that folder to download them again.
 4. Uploads it to CrossRef under a unique file name.
 
-A record that fails any step is reported and skipped. The tool then waits up to `ResultTimeoutMinutes` for CrossRef's deposit results, prints them, and exits with code `1` if any record failed.
+A record that fails any step is reported and skipped; if CrossRef rejects the credentials, the remaining records are not processed. Requests that only read (Invenio RDM records, CrossRef lookups and deposit results) are retried on temporary errors; uploads are not. The tool then waits up to `ResultTimeoutMinutes` for CrossRef's deposit results and prints them.
+
+Exit codes: `0` all records deposited, `1` a record failed, `2` nothing failed but CrossRef hasn't confirmed every deposit yet.
 
 ### CrossRef content types
 
@@ -84,7 +86,16 @@ A record that fails any step is reported and skipped. The tool then waits up to 
 | Dataset (`dataset`) | Dataset in the `RepositoryName` database |
 | Anything else | Posted content (report) |
 
-A DOI that is already registered keeps its CrossRef content type, because CrossRef doesn't allow a deposit to change it. The record's first language is sent as the metadata language.
+A DOI that is already registered keeps its CrossRef content type, because CrossRef doesn't allow a deposit to change it.
+
+Besides titles, creators, dates, abstracts and references, each deposit carries:
+
+- the record's first language as the metadata language
+- license URLs from the record's rights
+- funding: the funder's ROR id (or name) and award number
+- related identifiers whose relation type has a CrossRef equivalent
+- the subtitle; alternative and translated titles on journal articles only (other CrossRef types have no place for them)
+- additional descriptions of type "abstract" as extra abstracts in their language
 
 ### Tests
 

@@ -13,8 +13,9 @@ public static class FromJsonConverter
 {
     private static readonly XNamespace Crossref = "http://www.crossref.org/schema/5.3.1";
     private static readonly XNamespace Jats = "http://www.ncbi.nlm.nih.gov/JATS1";
-    private static readonly XNamespace AccessIndicators = "http://www.crossref.org/AccessIndicators.xsd";
-    private static readonly XNamespace Relations = "http://www.crossref.org/relations.xsd";
+    private static readonly XNamespace FundRef = CrossrefPrograms.FundRef;
+    private static readonly XNamespace AccessIndicators = CrossrefPrograms.AccessIndicators;
+    private static readonly XNamespace Relations = CrossrefPrograms.Relations;
     private static readonly XNamespace Xsi = "http://www.w3.org/2001/XMLSchema-instance";
 
     // Throws when the record can't be converted, so the caller can report and skip it.
@@ -32,6 +33,7 @@ public static class FromJsonConverter
             new XDeclaration("1.0", "UTF-8", null),
             new XElement(Crossref + "doi_batch",
                 new XAttribute(XNamespace.Xmlns + "ai", AccessIndicators.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "fr", FundRef.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "jats", Jats.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "rel", Relations.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "xsi", Xsi.NamespaceName),
@@ -119,10 +121,11 @@ public static class FromJsonConverter
                 Language(metadata),
                 Contributors(root),
                 Titles(metadata),
-                Abstract(metadata),
+                Abstracts(metadata),
                 new XElement(Crossref + "publication_date", GetPublicationDate(metadata).ToCrossref(Crossref)),
                 Isbns(metadata),
                 Publisher(metadata),
+                CrossrefPrograms.For(metadata),
                 DoiData(doi, recordUrl),
                 CitationList(metadata)
             )
@@ -135,7 +138,8 @@ public static class FromJsonConverter
             Contributors(root),
             Titles(metadata),
             new XElement(Crossref + "posted_date", GetPublicationDate(metadata).ToCrossref(Crossref)),
-            Abstract(metadata),
+            Abstracts(metadata),
+            CrossrefPrograms.For(metadata),
             DoiData(doi, recordUrl),
             CitationList(metadata)
         );
@@ -159,10 +163,12 @@ public static class FromJsonConverter
                 HasFiles(root) ? null : new XAttribute("publication_type", "bibliographic_record"),
                 Language(metadata),
                 Titles(metadata),
+                ExtraJournalTitles(metadata),
                 Contributors(root),
-                Abstract(metadata),
+                Abstracts(metadata),
                 new XElement(Crossref + "publication_date", publicationDate.ToCrossref(Crossref)),
                 Pages(journal.Pages),
+                CrossrefPrograms.For(metadata),
                 DoiData(doi, recordUrl),
                 CitationList(metadata)
             )
@@ -194,6 +200,7 @@ public static class FromJsonConverter
                         Language(metadata),
                         string.Join("\n\n", description.Select(p => p.Value)))
                     : null,
+                CrossrefPrograms.For(metadata),
                 DoiData(doi, recordUrl),
                 CitationList(metadata)
             )
@@ -264,16 +271,55 @@ public static class FromJsonConverter
         return contributors.HasElements ? contributors : null;
     }
 
+    // Main title and subtitle. Crossref titles have no place for alternative or translated titles,
+    // except that journal articles may carry several titles (ExtraJournalTitles).
     private static XElement? Titles(JsonElement metadata) =>
         metadata.TryGetProperty("title", out var title)
-            ? new XElement(Crossref + "titles", new XElement(Crossref + "title", title.GetString()))
+            ? new XElement(Crossref + "titles",
+                new XElement(Crossref + "title", title.GetString()),
+                AdditionalTitles(metadata, "subtitle").Take(1).Select(subtitle => new XElement(Crossref + "subtitle", subtitle)))
             : null;
 
-    private static XElement? Abstract(JsonElement metadata)
+    private static IEnumerable<XElement> ExtraJournalTitles(JsonElement metadata) =>
+        AdditionalTitles(metadata, "alternative-title", "translated-title")
+            .Take(19)
+            .Select(title => new XElement(Crossref + "titles", new XElement(Crossref + "title", title)));
+
+    private static IEnumerable<string> AdditionalTitles(JsonElement metadata, params string[] types) =>
+        AdditionalEntries(metadata, "additional_titles", types)
+            .Select(entry => NullIfBlank(GetString(entry, "title")))
+            .OfType<string>();
+
+    // The description, plus additional descriptions of type "abstract" (e.g. translations) in their language
+    private static IEnumerable<XElement> Abstracts(JsonElement metadata)
     {
-        var paragraphs = HtmlToJats.ToParagraphs(GetString(metadata, "description"), Jats);
-        return paragraphs.Count > 0 ? new XElement(Jats + "abstract", paragraphs) : null;
+        var descriptions = new[] { (Html: GetString(metadata, "description"), Language: (string?)null) }
+            .Concat(AdditionalEntries(metadata, "additional_descriptions", "abstract")
+                .Select(entry => (GetString(entry, "description"), Languages.ToIso6391(GetString(GetObject(entry, "lang"), "id")))));
+
+        foreach (var (html, language) in descriptions)
+        {
+            var paragraphs = HtmlToJats.ToParagraphs(html, Jats);
+
+            if (paragraphs.Count > 0)
+                yield return new XElement(Jats + "abstract",
+                    language != null ? new XAttribute(XNamespace.Xml + "lang", language) : null,
+                    paragraphs);
+        }
     }
+
+    // additional_titles/additional_descriptions entries whose type id is one of types
+    private static IEnumerable<JsonElement> AdditionalEntries(JsonElement metadata, string property, params string[] types) =>
+        metadata.TryGetProperty(property, out var entries) && entries.ValueKind == JsonValueKind.Array
+            ? entries.EnumerateArray().Where(entry => types.Contains(GetString(GetObject(entry, "type"), "id")))
+            : [];
+
+    private static JsonElement GetObject(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Object
+            ? value
+            : default;
 
     // publication_date/posted_date are required by Crossref, so a record without a usable date fails
     private static EdtfDate GetPublicationDate(JsonElement metadata)
