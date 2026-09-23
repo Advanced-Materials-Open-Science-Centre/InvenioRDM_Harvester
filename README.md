@@ -12,7 +12,7 @@ The automated transfer process involves the following key stages:
 
 ### Prerequisites
 
-* .NET Core SDK 9 or a later compatible version. Installation instructions can be found at: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+* .NET SDK 10 and the .NET 9 runtime: the converter and its tests target .NET 9, `Updater.Console` targets .NET 10. Installation instructions can be found at: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
 
 ### Build Instructions
 
@@ -72,3 +72,12 @@ For each entry in `DoiMappings` the tool:
 4. Uploads it to CrossRef under a unique file name.
 
 A record that fails any step is reported and skipped. The tool then waits up to `ResultTimeoutMinutes` for CrossRef's deposit results, prints them, and exits with code `1` if any record failed.
+
+### Tests
+
+```bash
+cd src
+dotnet test --filter "Category!=Integration"
+```
+
+Unit tests run offline. Integration tests (`Category=Integration`) fetch real records from https://dataset.cnu.edu.ua/ and validate the converted XML with CrossRef's online schema parser, which only checks the XML and never deposits it. CI runs both on every pull request.

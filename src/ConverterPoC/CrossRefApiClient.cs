@@ -9,13 +9,13 @@ public class CrossrefApiClient
     private readonly HttpClient _client;
     private readonly string _username;
     private readonly string _password;
-    private readonly string _testApiUrl;
+    private readonly string _depositUrl;
 
     public CrossrefApiClient(string username, string password, string apiUrl)
     {
         _username = username;
         _password = password;
-        _testApiUrl = apiUrl;
+        _depositUrl = apiUrl;
         _client = new HttpClient();
     }
 
@@ -46,7 +46,7 @@ public class CrossrefApiClient
         EnsureCredentialsSet();
 
         // Same servlet as the deposit endpoint (doi.crossref.org or test.crossref.org)
-        var url = new Uri(new Uri(_testApiUrl), "submissionDownload");
+        var url = new Uri(new Uri(_depositUrl), "submissionDownload");
 
         // POST keeps the password out of URLs and logs
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -79,43 +79,13 @@ public class CrossrefApiClient
         xmlContent.Headers.ContentType = new MediaTypeHeaderValue("application/xml");
         content.Add(xmlContent, "fname", fileName);
 
-        var response = await _client.PostAsync(_testApiUrl, content);
+        var response = await _client.PostAsync(_depositUrl, content);
 
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadAsStringAsync();
     }
 
-    public async Task<CrossrefWork?> SearchCrossrefByIsbnAsync(string isbn)
-    {
-        string query = $"https://api.crossref.org/works?query={isbn}&rows=10";
-        var json = await _client.GetStringAsync(query);
-
-        var response = JsonSerializer.Deserialize<CrossrefSearchResponse>(json);
-    
-        return response?.Message?.Items?.FirstOrDefault(w =>
-            w.Isbn != null && w.Isbn.Any(i => i.Replace("-", "") == isbn.Replace("-", ""))
-        );
-    }
-    
-    public async Task<string?> GetJournalTitleByISSN(string issn)
-    {
-        var url = $"https://api.crossref.org/journals/{issn}";
-
-        try
-        {
-            var response = await _client.GetStringAsync(url);
-            using var doc = JsonDocument.Parse(response);
-            var title = doc.RootElement.GetProperty("message").GetProperty("title").GetString();
-            return title;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error: {ex.Message}");
-            return null;
-        }
-    }
-    
     private void EnsureCredentialsSet()
     {
         if(string.IsNullOrEmpty(_password))
